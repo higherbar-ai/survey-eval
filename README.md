@@ -101,3 +101,8 @@ There's much that can be improved here. For example:
 * Ideally, we would parse modules into logical sub-modules that appear to measure a single construct, so that we can
   better evaluate whether to recommend adaptation of validated instruments. Right now, an entire module is evaluated
   at once, but modules often contain measurement of multiple constructs.
+
+## Credits
+
+This toolkit was originally developed by [Higher Bar AI](https://higherbar.ai), a public benefit corporation, with 
+generous support from [Dobility, the makers of SurveyCTO](https://surveycto.com).
