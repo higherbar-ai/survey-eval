@@ -2,7 +2,7 @@
 
 This repository contains a toolkit for AI-powered survey instrument evaluation. It's still in early development, but 
 is ready to support piloting and experimentation. To learn more about the overall project, see 
-[this blog post](https://www.linkedin.com/pulse/beating-mean-high-stakes-ai-christopher-robert-oodie/).  
+[this blog post](https://www.linkedin.com/pulse/under-the-hood-ai-beyond-chatbots-christopher-robert-dquue).  
 
 Here are the basics:
 
