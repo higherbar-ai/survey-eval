@@ -661,9 +661,23 @@ async def safe_apredict(chain: LLMChain, page: str):
         return {'data': []}
 
 
+def total_string_length(d: dict) -> int:
+    """
+    Calculate the total string length of all values in a dictionary.
+
+    :param d: The dictionary whose values' string lengths are to be summed.
+    :type d: dict
+    :return: The total string length of all values.
+    :rtype: int
+    """
+
+    return sum(len(str(value)) for value in d.values())
+
+
 def clean_data(data: dict) -> dict:
     """
-    Clean the provided data by removing empty questions and modules.
+    Clean the provided data by removing empty modules and questions — and by removing duplicate questions,
+    keeping the ones with more content.
 
     :param data: The data to be cleaned.
     :type data: dict
@@ -684,12 +698,25 @@ def clean_data(data: dict) -> dict:
             # for each question, look for questions with the same question text
             for question, question_data in module.items():
                 if question_data:
-                    for i in range(len(question_data) - 1, 0, -1):
-                        if question_data[i]['question'] == question_data[i - 1]['question']:
-                            # remove this version of the question from list (keep the first one)
-                            parser_logger.log(logging.INFO, f"  * Dropping duplicate question: "
-                                                            f"{question} - {question_data[i]['question']}")
-                            question_data.pop(i)
+                    to_remove = set()
+                    for i in range(len(question_data)):
+                        for j in range(i + 1, len(question_data)):
+                            if question_data[i]['question'] == question_data[j]['question']:
+                                # compare total string lengths and mark the shorter one for removal
+                                length_i = total_string_length(question_data[i])
+                                length_j = total_string_length(question_data[j])
+                                if length_i > length_j:
+                                    to_remove.add(j)
+                                else:
+                                    to_remove.add(i)
+                                parser_logger.log(logging.INFO, f"  * Dropping duplicate question with shorter "
+                                                                f"content: "
+                                                                f"{question} - {question_data[i]['question']} "
+                                                                f"({length_i} vs {length_j})")
+
+                    # Remove duplicates after identifying them
+                    for index in sorted(to_remove, reverse=True):
+                        question_data.pop(index)
 
             cleaned_data[key] = module
 
