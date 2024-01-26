@@ -149,7 +149,8 @@ empty JSON response of {{}}."""
 
     @overrides
     async def a_evaluate(self, chat_history: list = None, survey_context: str = "", survey_locations: str = "",
-                         survey_excerpt: str = "", **kwargs) -> list[dict | None, list[list[str, str]]]:
+                         survey_excerpt: str = "", survey_question: str = "", **kwargs) \
+            -> list[dict | None, list[list[str, str]]]:
         """
         Override default a_evaluate method.
 
@@ -161,6 +162,8 @@ empty JSON response of {{}}."""
         :type survey_locations: str
         :param survey_excerpt: Excerpt from the survey instrument to evaluate.
         :type survey_excerpt: str
+        :param survey_question: Specific question to focus on.
+        :type survey_question: str
         :param kwargs: Keyword arguments to use for formatting the task system prompt and question.
         :type kwargs: Any
         :return: A list with the evaluation result and a list with the full history of the evaluation chain.
@@ -169,7 +172,9 @@ empty JSON response of {{}}."""
 
         return await super().a_evaluate(chat_history=chat_history, survey_context=survey_context,
                                         survey_locations=survey_locations,
-                                        survey_excerpt=EvaluationEngine.clean_whitespace(survey_excerpt), **kwargs)
+                                        survey_excerpt=EvaluationEngine.clean_whitespace(survey_excerpt),
+                                        survey_question=EvaluationEngine.clean_whitespace(survey_question),
+                                        **kwargs)
 
     def format_result(self, result: dict | None = None) -> str:
         """
@@ -519,8 +524,9 @@ changes in the primary language.
 
 Respond in JSON format with all of the following fields:
 
-* Phrases: a list containing all problematic phrases from the excerpt that you found in your review, where one language
-translation does not adequately match the other (each phrase should be an exact quote from the translated language)
+* Phrases: a list containing all problematic phrases from the translation that you found in your review, where 
+the translation does not adequately match the meaning in the primary language (each phrase should be an exact quote 
+from the translated language)
 
 * Number of phrases: the exact number of phrases in Phrases
 
