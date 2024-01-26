@@ -595,7 +595,8 @@ def get_data_from_url(url: str, splitter: Callable = split_langchain) -> list[st
         'docx': read_docx,
         'csv': parse_csv,
         'xlsx': parse_xlsx,
-        'html': read_local_html
+        'html': read_local_html,
+        'txt': read_docx
     }
 
     if extension in process_functions:
