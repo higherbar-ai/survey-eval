@@ -43,28 +43,43 @@ You always give truthful, factual answers. When asked to give your response in a
 answer in the exact format requested. You never give offensive responses. If you don’t know the answer to a question,
 you truthfully say you don’t know.
 
-You will be given an excerpt from a questionnaire or survey instrument between |@| and |@| delimiters. The context and
-location(s) for that excerpt are as follows:
+You will be given an excerpt from a questionnaire or survey instrument between |!| and |!| delimiters. You will also
+be given a specific question from that excerpt to evaluate between |@| and |@| delimiters. Evaluate the question only,
+but also consider its context within the larger excerpt.
+
+The broader context and location(s) for that excerpt are as follows. Consider these when evaluating the question.
 
 Survey context: {survey_context}
 
 Survey locations: {survey_locations}
 
 Assume that this survey will be administered by a trained enumerator who asks each question and reads each prompt or
-instruction as indicated in the excerpt. Your job is to anticipate the phrasing or translation issues that will be
-identified in cognitive interviewing and piloting. Ignore question numbers and formatting, and assume that code to
-refer to earlier responses like [QUESTION] or ${{{{question}}}} is okay as it is. Do not try to replace such code.
+instruction as indicated in the excerpt. Your job is to anticipate the phrasing or translation issues that would be
+identified in a rigorous process of pre-testing (with cognitive interviewing) and piloting.
+
+When evaluating the question, DO: (1) ensure that the question will be understandable by substantially all 
+respondents, based on the survey context and locations above; (2) consider the language, location, and survey context 
+(with the appropriate location for the language coming from the "Survey locations" list above); (3) consider the 
+question in the context of the excerpt, including any instructions, related questions, or prompts that precede it; (4) 
+ignore question numbers and formatting; and (5) assume that code to refer to earlier responses like [QUESTION] or 
+${{{{question}}}} is okay as it is.
+
+When evaluating the question, DON'T: recommend translating something into another language (i.e., suggestions for
+rephrasing should always be in the same language as the original text).
+
+Only recommend changes in the overall structure of a question (e.g., changing from multiple choice to open-ended or 
+splitting one question into multiple) when it will substantially improve the quality of the data collected.
 
 Respond in JSON format with all of the following fields:
 
-* Phrases: a list containing all phrases from the excerpt that cognitive interviewing or piloting is likely to identify
+* Phrases: a list containing all phrases from the excerpt that pre-testing or piloting is likely to identify
 as problematic (each phrase should be an exact quote)
 
 * Number of phrases: the exact number of phrases in Phrases
 
 * Recommendations: a list containing suggested replacement phrases, one for each of the phrases in Phrases (in the same
 order as Phrases; each replacement phrase should be an exact quote that can exactly replace the corresponding phrase in
-Phrases)
+Phrases; and each replacement phrase should be in the same language as the original phrase)
 
 * Explanations: a list containing explanations for why the authors should consider revising each phrase, one for each
 of the phrases in Phrases (in the same order as Phrases). Do not repeat the entire phrase in the explanation, but feel
@@ -75,7 +90,7 @@ same order as Phrases); each severity should be expressed as a number on a scale
 (minor phrasing issues that are very unlikely to substantively affect responses) to 5 for the most severe issues
 (problems that are likely to substantively affect responses in a way that introduces bias and/or variance)"""
 
-        lens_question_template = """Excerpt: |@|{survey_excerpt}|@|"""
+        lens_question_template = """Excerpt: |!|{survey_excerpt}|!|\n\nQuestion: |@|{survey_question}|@|"""
 
         lens_followups = [
             {
@@ -93,9 +108,11 @@ If you have no changes to propose, respond with an empty JSON response of {{}}."
                 'prompt_template': """Are you certain that (1) the Phrases, Recommendations, Explanations, and
 Severities lists each have exactly {Number of phrases} elements, in the same parallel order; (2) every element of the
 Severities list is a 1, 2, 3, 4, or 5, depending on the severity of the identified issue (with the most minor phrasing
-issues receiving a 1 and the most serious phrasing issues receiving a 5); and (3) you didn't try to replace code for
-prior responses like [QUESTION] or ${{{{question}}}}? If appropriate, please respond with a revised JSON response
-(including all fields). If you have no changes to propose, respond with an empty JSON response of {{}}."""
+issues receiving a 1 and the most serious phrasing issues receiving a 5); (3) you didn't try to replace code for
+prior responses like [QUESTION] or ${{{{question}}}}; (4) your replacement phrase is in the same language as the
+original phrase; and (5) your recommendation concerns the specific question you were asked to evaluate? If appropriate, 
+please respond with a revised JSON response (including all fields). If you have no changes to propose, respond with an 
+empty JSON response of {{}}."""
             }
         ]
 
@@ -104,7 +121,8 @@ prior responses like [QUESTION] or ${{{{question}}}}? If appropriate, please res
 
     @overrides
     def evaluate(self, chat_history: list = None, survey_context: str = "", survey_locations: str = "",
-                 survey_excerpt: str = "", **kwargs) -> list[dict | None, list[list[str, str]]]:
+                 survey_excerpt: str = "", survey_question: str = "", **kwargs) \
+            -> list[dict | None, list[list[str, str]]]:
         """
         Override default evaluate method.
 
@@ -114,8 +132,10 @@ prior responses like [QUESTION] or ${{{{question}}}}? If appropriate, please res
         :type survey_context: str
         :param survey_locations: Information about the survey location(s).
         :type survey_locations: str
-        :param survey_excerpt: Excerpt from the survey instrument to evaluate.
+        :param survey_excerpt: Excerpt from the survey instrument (for context).
         :type survey_excerpt: str
+        :param survey_question: Specific question to focus on.
+        :type survey_question: str
         :param kwargs: Keyword arguments to use for formatting the task system prompt and question.
         :type kwargs: Any
         :return: A list with the evaluation result and a list with the full history of the evaluation chain.
@@ -124,7 +144,8 @@ prior responses like [QUESTION] or ${{{{question}}}}? If appropriate, please res
 
         return super().evaluate(chat_history=chat_history, survey_context=survey_context,
                                 survey_locations=survey_locations,
-                                survey_excerpt=EvaluationEngine.clean_whitespace(survey_excerpt), **kwargs)
+                                survey_excerpt=EvaluationEngine.clean_whitespace(survey_excerpt),
+                                survey_question=EvaluationEngine.clean_whitespace(survey_question), **kwargs)
 
     @overrides
     async def a_evaluate(self, chat_history: list = None, survey_context: str = "", survey_locations: str = "",
@@ -477,26 +498,35 @@ Survey context: {survey_context}
 
 Survey locations: {survey_locations}
 
-The excerpt will include the same questions and response options in multiple languages. Assume that this survey will be
-administered by a trained enumerator who asks each question in a single language appropriate to the respondent and
-reads each prompt or instruction as indicated in the excerpt. Your job is to review the excerpt for differences in the
-translations that could lead to differing response patterns from respondents. The goal is for translations to be
-accurate enough that data collected will be comparable regardless of the language of administration.
+The excerpt will include the same questions and response options in two languages, one labeled as primary and one 
+labeled as translated. Assume that this survey will be administered by a trained enumerator who asks each question in a 
+single language appropriate to the respondent and reads each prompt or instruction as indicated in the excerpt. Your 
+job is to review the excerpt for differences in the translation that could lead to differing response patterns from 
+respondents. The goal is for translations to be accurate enough that data collected will be comparable regardless of 
+the language of administration.
+
+Assume that each language will be used in the location contexts as indicated in the "Survey locations" details
+above, and consider those location contexts (and only those location contexts) in your evaluation. For example, when 
+evaluating a question in French or English, consider the appropriate country contexts listed in the "Survey locations", 
+as languages might have different dialects and conventions in different countries.
+
+Also assume that translations should be designed for understandability and comparability across locations. Literal
+translations might not best achieve the same meaning and response patterns across settings. Ensure that the meaning is
+common across languages and locations.
+
+Finally, identify problematic phrases and replacement text in the translated language only. Do not propose any  
+changes in the primary language.
 
 Respond in JSON format with all of the following fields:
 
 * Phrases: a list containing all problematic phrases from the excerpt that you found in your review, where one language
-translation does not adequately match the other (each phrase should be an exact quote from the excerpt)
+translation does not adequately match the other (each phrase should be an exact quote from the translated language)
 
 * Number of phrases: the exact number of phrases in Phrases
 
-* Questions: a list containing the English versions of the questions associated with problematic phrases, one for each
-of the phrases in Phrases (in the same order as Phrases); each question should be an exact quote from the excerpt, or
-an English translation if no English version is provided
-
 * Recommendations: a list containing suggested replacement phrases, one for each of the phrases in Phrases (in the same
 order as Phrases; each replacement phrase should be an exact quote that can exactly replace the corresponding phrase in
-Phrases)
+Phrases; and each replacement phrase should be in the same translated language as the phrase it replaces)
 
 * Explanations: a list containing explanations for why the phrases are problematic, one for each of the phrases in
 Phrases (in the same order as Phrases)
@@ -515,15 +545,15 @@ variance)"""
                 'condition_key': 'Phrases',
                 'condition_value': 1,
                 'prompt_template': """Are you sure that there are no inaccurate translations, nor any response options
-that are missing or ordered differently in a translation? If appropriate, please respond with a revised JSON response
-(including all fields). If you have no changes to propose, respond with an empty JSON response of {{}}."""
+that are missing or ordered differently in the translated version? If appropriate, please respond with a revised JSON 
+response (including all fields). If you have no changes to propose, respond with an empty JSON response of {{}}."""
             },
             {
                 'condition_func': EvaluationLens.condition_list_has_greater_or_equal_elements,
                 'condition_key': 'Phrases',
                 'condition_value': 1,
-                'prompt_template': """Differences in the phrasing of questions or response options can affect response
-patterns in important ways. Are you sure that you didn't miss any cases where phrasing differences could lead to
+                'prompt_template': """Differences in the meaning of questions or response options can affect response
+patterns in important ways. Are you sure that you didn't miss any cases where differences in meaning could lead to
 different response patterns? If appropriate, please respond with a revised JSON response (including all fields). If you
 have no changes to propose, respond with an empty JSON response of {{}}."""
             },
@@ -533,16 +563,17 @@ have no changes to propose, respond with an empty JSON response of {{}}."""
                 'condition_value': 1,
                 'prompt_template': """If the same response options are not present in all translations in the same
 order, response patterns can differ. Are you sure that you didn't miss any cases where response options are missing
-from a translation, or in a different order? If appropriate, please respond with a revised JSON response (including all
-fields). If you have no changes to propose, respond with an empty JSON response of {{}}."""
+from the translation, or in a different order? If appropriate, please respond with a revised JSON response (including 
+all fields). If you have no changes to propose, respond with an empty JSON response of {{}}."""
             },
             {
                 'condition_func': EvaluationLens.condition_list_has_greater_or_equal_elements,
                 'condition_key': 'Phrases',
                 'condition_value': 1,
-                'prompt_template': """Are you certain that (1) the Phrases, Questions, Recommendations, Explanations,
-and Severities lists each have exactly {Number of phrases} elements, in the same parallel order; and (2) every element
-of the Severities list is a 1, 2, 3, 4, or 5, depending on the severity of the issue? If appropriate, please respond
+                'prompt_template': """Are you certain that (1) the Phrases, Recommendations, Explanations,
+and Severities lists each have exactly {Number of phrases} elements, in the same parallel order; (2) every element
+of the Severities list is a 1, 2, 3, 4, or 5, depending on the severity of the issue; and (3) every phrase in Phrases 
+and every recommendation in Recommendations is in the translated language? If appropriate, please respond
 with a revised JSON response (including all fields). If you have no changes to propose, respond with an empty JSON
 response of {{}}."""
             }
@@ -626,7 +657,6 @@ response of {{}}."""
                                     key=lambda idx: result_to_format["Severities"][idx], reverse=True)
             for i in sorted_indices:
                 formatted_result += f"Severity {result_to_format['Severities'][i]} finding (out of 5):\n\n"
-                formatted_result += f"Question: {result_to_format['Questions'][i]}\n"
                 formatted_result += f"Existing phrase: {result_to_format['Phrases'][i]}\n"
                 formatted_result += f"Recommended replacement: {result_to_format['Recommendations'][i]}\n"
                 formatted_result += f"Explanation: {result_to_format['Explanations'][i]}\n\n"

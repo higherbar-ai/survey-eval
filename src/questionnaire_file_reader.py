@@ -34,7 +34,7 @@ from langchain.document_loaders import UnstructuredFileLoader, UnstructuredExcel
 # initialize global variables
 nltk.download('punkt')
 nlp = spacy.load('en_core_web_sm')
-LANGCHAIN_SPLITTER_CHUNK_SIZE = 7500
+LANGCHAIN_SPLITTER_CHUNK_SIZE = 6000
 LANGCHAIN_SPLITTER_OVERLAP_SIZE = 500
 
 
