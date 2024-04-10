@@ -34,9 +34,23 @@ from langchain.document_loaders import UnstructuredFileLoader, UnstructuredExcel
 # initialize global variables
 nltk.download('punkt')
 nlp = spacy.load('en_core_web_sm')
-LANGCHAIN_SPLITTER_CHUNK_SIZE = 6000
-LANGCHAIN_SPLITTER_OVERLAP_SIZE = 500
+langchain_splitter_chunk_size = 6000
+langchain_splitter_overlap_size = 500
 
+
+def set_langchain_splits(chunk_size: int, overlap_size: int):
+    """
+    Set the chunk size and overlap size for the (default) langchain splitter.
+
+    :param chunk_size: Size of each chunk.
+    :type chunk_size: int
+    :param overlap_size: Size of the overlap.
+    :type overlap_size: int
+    """
+
+    global langchain_splitter_chunk_size, langchain_splitter_overlap_size
+    langchain_splitter_chunk_size = chunk_size
+    langchain_splitter_overlap_size = overlap_size
 
 def clean_whitespace(s: str) -> str:
     """
@@ -81,8 +95,8 @@ def split_langchain(content, create_doc: bool = True) -> list:
 
     # split content into chunks, with overlap to ensure that we capture entire questions (at risk of duplication)
     doc = SchemaDocument(page_content=content) if create_doc else content
-    return RecursiveCharacterTextSplitter(chunk_size=LANGCHAIN_SPLITTER_CHUNK_SIZE,
-                                          chunk_overlap=LANGCHAIN_SPLITTER_OVERLAP_SIZE).split_documents([doc])
+    return RecursiveCharacterTextSplitter(chunk_size=langchain_splitter_chunk_size,
+                                          chunk_overlap=langchain_splitter_overlap_size).split_documents([doc])
 
 
 def split_nltk(content) -> list:
@@ -313,9 +327,13 @@ def parse_xlsx(file_path: str, splitter: Callable = split_langchain):
         data = loader.load()
         content_list = []
         for page in data:
-            html_content = page.metadata['text_as_html']
-            page_name = page.metadata['page_name']
-            content_list.append('<h1>' + page_name + '</h1>\n' + html_content)
+            if 'text_as_html' in page.metadata:
+                html_content = page.metadata['text_as_html']
+            else:
+                html_content = page.page_content
+            if 'page_name' in page.metadata:
+                page_name = page.metadata['page_name']
+                content_list.append('<h1>' + page_name + '</h1>\n' + html_content)
 
         # split and return the processed content
         split_content = []
