@@ -14,7 +14,7 @@
 
 """Core classes for instrument evaluation engine."""
 
-from langchain.chat_models import ChatOpenAI, AzureChatOpenAI
+from langchain_openai import ChatOpenAI, AzureChatOpenAI
 from langchain.prompts import SystemMessagePromptTemplate, HumanMessagePromptTemplate, ChatPromptTemplate
 from langchain.memory import ConversationSummaryBufferMemory, ChatMessageHistory
 from langchain import ConversationChain
@@ -58,11 +58,12 @@ class EvaluationEngine:
     temperature: float
     max_retries: int
     logger: logging.Logger
+    extra_evaluation_instructions: str
 
     def __init__(self, summarize_model: str, summarize_provider: str, evaluation_model: str, evaluation_provider: str,
                  openai_api_key: str, azure_api_key: str = "", azure_api_base: str = "", azure_api_version: str = "",
                  temperature: float = 0.1, tiktoken_model_name: str = "", max_retries: int = 3,
-                 logger: logging.Logger = None):
+                 logger: logging.Logger = None, extra_evaluation_instructions: str = ""):
         """
         Initialize evaluation engine.
 
@@ -89,6 +90,8 @@ class EvaluationEngine:
         :type tiktoken_model_name: str
         :param logger: Logger instance for logging messages.
         :type logger: logging.Logger
+        :param extra_evaluation_instructions: Extra evaluation instructions (if any).
+        :type extra_evaluation_instructions: str
         """
 
         # initialize object from constructor parameters
@@ -111,6 +114,7 @@ class EvaluationEngine:
             self.logger = logging.getLogger(__name__)
         else:
             self.logger = logger
+        self.extra_evaluation_instructions = extra_evaluation_instructions
 
     def tiktoken_len(self, text: str) -> int:
         """
@@ -195,7 +199,7 @@ class EvaluationEngine:
                 temperature=self.temperature,
                 verbose=False,
                 model_name=self.summarize_model,
-                openai_api_base=self.azure_api_base,
+                azure_endpoint=self.azure_api_base,
                 openai_api_version=self.azure_api_version,
                 deployment_name=self.summarize_model,
                 openai_api_key=self.azure_api_key,
@@ -218,7 +222,7 @@ class EvaluationEngine:
                 temperature=self.temperature,
                 verbose=False,
                 model_name=self.evaluation_model,
-                openai_api_base=self.azure_api_base,
+                azure_endpoint=self.azure_api_base,
                 openai_api_version=self.azure_api_version,
                 deployment_name=self.evaluation_model,
                 openai_api_key=self.azure_api_key,
@@ -317,7 +321,7 @@ Assistant:"""
             attempt += 1
             try:
                 # ask our question and record the result
-                result = await llm_chain.acall({"question": question})
+                result = await llm_chain.ainvoke({"question": question})
                 if chat_history is not None:
                     chat_history.append((question, result["answer"]))
                 break
@@ -436,7 +440,7 @@ Assistant:"""
                 attempt += 1
                 try:
                     # ask our question and record the result
-                    result = await llm_chain.acall({"question": followup_question})
+                    result = await llm_chain.ainvoke({"question": followup_question})
                     if chat_history is not None:
                         chat_history.append((followup_question, result["answer"]))
                     break
@@ -520,6 +524,9 @@ class EvaluationLens:
 
         # initialize object from constructor parameters
         self.task_system_prompt_template = task_system_prompt_template
+        if evaluation_engine.extra_evaluation_instructions:
+            self.task_system_prompt_template += (f"\n\nAlso follow these additional instructions:\n\n"
+                                                 f"{evaluation_engine.extra_evaluation_instructions}")
         self.question_template = question_template
         self.followups = followups
         self.evaluation_engine = evaluation_engine

@@ -29,7 +29,7 @@ from kor.extraction import create_extraction_chain
 from kor import from_pydantic
 from kor.nodes import Object
 from kor.validators import Validator
-from langchain.chat_models import ChatOpenAI, AzureChatOpenAI
+from langchain_openai import ChatOpenAI, AzureChatOpenAI
 from langchain.prompts.prompt import PromptTemplate
 from langchain.chains import LLMChain
 from langchain.callbacks import get_openai_callback
@@ -527,9 +527,9 @@ def generate_extractor_chain(model_input: str, api_base: str, openai_api_key: st
             temperature=0,
             verbose=True,
             model_name=model_input,
-            openai_api_base=api_base,
-            openai_api_version=open_api_version,
+            azure_endpoint=api_base,
             deployment_name=model_input,
+            openai_api_version=open_api_version,
             openai_api_key=openai_api_key,
             openai_api_type="azure",
         )
@@ -763,7 +763,15 @@ async def extract_data(chain: LLMChain, url: str) -> dict:
                         structured.extend(process_kor_data(res['data']))
     else:
         # process single document, tracking our LLM usage with an OpenAI callback
-        structured = process_kor_data(docs)
+        with get_openai_callback() as cb:
+            structured = process_kor_data(docs)
+
+            # report LLM usage
+            parser_logger.log(logging.INFO, f"Tokens consumed:: {cb.total_tokens}")
+            parser_logger.log(logging.INFO, f"  Prompt tokens: {cb.prompt_tokens}")
+            parser_logger.log(logging.INFO, f"  Completion tokens: {cb.completion_tokens}")
+            parser_logger.log(logging.INFO, f"Successful Requests: {cb.successful_requests}")
+            parser_logger.log(logging.INFO, f"Cost: ${cb.total_cost}")
 
     # organize questions by module and question ID
     question_module = {}

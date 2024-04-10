@@ -61,14 +61,22 @@ file formats:
    dictionaries are handled (e.g., the current approach doesn't handle modules or translations).
 5. `.html`: HTML files are read in the `read_html()` function, then converted into markdown for parsing.
 
-All of the raw content is split into 7,500-character chunks with 500 characters of overlap, before being passed on
+All of the raw content is split into 6,000-character chunks with 500 characters of overlap, before being passed on
 for parsing. This is necessary to both (a) avoid overflowing LLM context windows, and (b) allow the LLM to focus on
-a tractable amount of text in any given request.
+a tractable amount of text in any given request (with the latter becoming more important as the constraints on context
+windows are relaxed).
+
+Overall, the code for reading files performs pretty poorly for all but the simplest formats. There's much work to do
+here to improve quality.
 
 ### Parsing input files
 
 The actual parsing happens with LLM assistance, via [the kor library](https://github.com/eyurtsev/kor). All of that
 code lives in `questionnaire_file_parser.py`, with the core parsing instructions and examples in `create_schema()`.
+
+Here too, performance can be quite poor, depending on the complexity of the source file's organization and formatting.
+There's much to improve here, and it's worth trying 
+[the new LangChain approaches to extraction](https://python.langchain.com/docs/use_cases/extraction/) instead of Kor.
 
 ### Tracking and reporting costs
 
@@ -83,6 +91,8 @@ There's much that can be improved here. For example:
 * We should generally overhaul the `questionnaire_file_reader.py` module to better ingest different file formats into
   raw text that works consistently well for parsing. Better PDF, XLSForm, and REDCap support, in particular, would be
   nice.
+* We should try replacing Kor with 
+  [the latest LangChain approaches to extraction](https://python.langchain.com/docs/use_cases/extraction/).
 * We should add an LLM cache that avoids calling out to the LLM for responses that it already has from prior requests.
   After all, it's common to evaluate the same instrument multiple times, and it's incredibly wasteful to 
   keep going back to the LLM for the same responses every time (for requests that haven't changed in any way).
