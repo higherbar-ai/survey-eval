@@ -114,11 +114,13 @@ Temporary Items
 .apdisk
 
 # Directories created by setuptools, during Python packaging
-/src/surveydata.egg-info/
-/src/surveydata/surveydata.egg-info/
+/src/survey-eval.egg-info/
+/src/surveyeval/survey-eval.egg-info/
 /dist/
 /build/
 /src/.scrapy/
 
 /src/__pycache__/
-/data/
+
+# Sphinx documentation
+docs/build/

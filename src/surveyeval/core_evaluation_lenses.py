@@ -1,4 +1,4 @@
-#  Copyright (c) 2023 Higher Bar AI, PBC
+#  Copyright (c) 2023-24 Higher Bar AI, PBC
 #
 #  Licensed under the Apache License, Version 2.0 (the "License");
 #  you may not use this file except in compliance with the License.
@@ -14,7 +14,7 @@
 
 """Core set of instrument evaluation lenses."""
 
-from evaluation_engine import EvaluationEngine, EvaluationLens
+from surveyeval import EvaluationEngine, EvaluationLens
 from overrides import overrides
 import json
 
@@ -122,7 +122,7 @@ empty JSON response of {{}}."""
     @overrides
     def evaluate(self, chat_history: list = None, survey_context: str = "", survey_locations: str = "",
                  survey_excerpt: str = "", survey_question: str = "", **kwargs) \
-            -> list[dict | None, list[list[str, str]]]:
+            -> list:
         """
         Override default evaluate method.
 
@@ -138,8 +138,9 @@ empty JSON response of {{}}."""
         :type survey_question: str
         :param kwargs: Keyword arguments to use for formatting the task system prompt and question.
         :type kwargs: Any
-        :return: A list with the evaluation result and a list with the full history of the evaluation chain.
-        :rtype: list[dict | None, list[list[str, str]]]
+        :return: A list with, first, the evaluation result (a dict), and then a list with the full history of the
+            evaluation chain (each of which is a list with two strings, a prompt and a response).
+        :rtype: list
         """
 
         return super().evaluate(chat_history=chat_history, survey_context=survey_context,
@@ -150,7 +151,7 @@ empty JSON response of {{}}."""
     @overrides
     async def a_evaluate(self, chat_history: list = None, survey_context: str = "", survey_locations: str = "",
                          survey_excerpt: str = "", survey_question: str = "", **kwargs) \
-            -> list[dict | None, list[list[str, str]]]:
+            -> list:
         """
         Override default a_evaluate method.
 
@@ -166,8 +167,9 @@ empty JSON response of {{}}."""
         :type survey_question: str
         :param kwargs: Keyword arguments to use for formatting the task system prompt and question.
         :type kwargs: Any
-        :return: A list with the evaluation result and a list with the full history of the evaluation chain.
-        :rtype: list[dict | None, list[list[str, str]]]
+        :return: A list with, first, the evaluation result (a dict), and then a list with the full history of the
+            evaluation chain (each of which is a list with two strings, a prompt and a response).
+        :rtype: list
         """
 
         return await super().a_evaluate(chat_history=chat_history, survey_context=survey_context,
@@ -373,7 +375,7 @@ from 1 to 5, based on the strength of the recommendation (including all fields).
 
     @overrides
     def evaluate(self, chat_history: list = None, survey_context: str = "", survey_locations: str = "",
-                 survey_excerpt: str = "", **kwargs) -> list[dict | None, list[list[str, str]]]:
+                 survey_excerpt: str = "", **kwargs) -> list:
         """
         Override default evaluate method.
 
@@ -387,8 +389,9 @@ from 1 to 5, based on the strength of the recommendation (including all fields).
         :type survey_excerpt: str
         :param kwargs: Keyword arguments to use for formatting the task system prompt and question.
         :type kwargs: Any
-        :return: A list with the evaluation result and a list with the full history of the evaluation chain.
-        :rtype: list[dict | None, list[list[str, str]]]
+        :return: A list with, first, the evaluation result (a dict), and then a list with the full history of the
+            evaluation chain (each of which is a list with two strings, a prompt and a response).
+        :rtype: list
         """
 
         return super().evaluate(chat_history=chat_history, survey_context=survey_context,
@@ -397,7 +400,7 @@ from 1 to 5, based on the strength of the recommendation (including all fields).
 
     @overrides
     async def a_evaluate(self, chat_history: list = None, survey_context: str = "", survey_locations: str = "",
-                         survey_excerpt: str = "", **kwargs) -> list[dict | None, list[list[str, str]]]:
+                         survey_excerpt: str = "", **kwargs) -> list:
         """
         Override default a_evaluate method.
 
@@ -411,8 +414,9 @@ from 1 to 5, based on the strength of the recommendation (including all fields).
         :type survey_excerpt: str
         :param kwargs: Keyword arguments to use for formatting the task system prompt and question.
         :type kwargs: Any
-        :return: A list with the evaluation result and a list with the full history of the evaluation chain.
-        :rtype: list[dict | None, list[list[str, str]]]
+        :return: A list with, first, the evaluation result (a dict), and then a list with the full history of the
+            evaluation chain (each of which is a list with two strings, a prompt and a response).
+        :rtype: list
         """
 
         return await super().a_evaluate(chat_history=chat_history, survey_context=survey_context,
@@ -590,7 +594,7 @@ response of {{}}."""
 
     @overrides
     def evaluate(self, chat_history: list = None, survey_context: str = "", survey_locations: str = "",
-                 survey_excerpt: str = "", **kwargs) -> list[dict | None, list[list[str, str]]]:
+                 survey_excerpt: str = "", **kwargs) -> list:
         """
         Override default evaluate method.
 
@@ -604,8 +608,9 @@ response of {{}}."""
         :type survey_excerpt: str
         :param kwargs: Keyword arguments to use for formatting the task system prompt and question.
         :type kwargs: Any
-        :return: A list with the evaluation result and a list with the full history of the evaluation chain.
-        :rtype: list[dict | None, list[list[str, str]]]
+        :return: A list with, first, the evaluation result (a dict), and then a list with the full history of the
+            evaluation chain (each of which is a list with two strings, a prompt and a response).
+        :rtype: list
         """
 
         return super().evaluate(chat_history=chat_history, survey_context=survey_context,
@@ -614,7 +619,7 @@ response of {{}}."""
 
     @overrides
     async def a_evaluate(self, chat_history: list = None, survey_context: str = "", survey_locations: str = "",
-                         survey_excerpt: str = "", **kwargs) -> list[dict | None, list[list[str, str]]]:
+                         survey_excerpt: str = "", **kwargs) -> list:
         """
         Override default a_evaluate method.
 
@@ -628,8 +633,9 @@ response of {{}}."""
         :type survey_excerpt: str
         :param kwargs: Keyword arguments to use for formatting the task system prompt and question.
         :type kwargs: Any
-        :return: A list with the evaluation result and a list with the full history of the evaluation chain.
-        :rtype: list[dict | None, list[list[str, str]]]
+        :return: A list with, first, the evaluation result (a dict), and then a list with the full history of the
+            evaluation chain (each of which is a list with two strings, a prompt and a response).
+        :rtype: list
         """
 
         return await super().a_evaluate(chat_history=chat_history, survey_context=survey_context,
@@ -770,7 +776,7 @@ of {{}}."""
 
     @overrides
     def evaluate(self, chat_history: list = None, survey_context: str = "", survey_locations: str = "",
-                 survey_excerpt: str = "", **kwargs) -> list[dict | None, list[list[str, str]]]:
+                 survey_excerpt: str = "", **kwargs) -> list:
         """
         Override default evaluate method.
 
@@ -784,8 +790,9 @@ of {{}}."""
         :type survey_excerpt: str
         :param kwargs: Keyword arguments to use for formatting the task system prompt and question.
         :type kwargs: Any
-        :return: A list with the evaluation result and a list with the full history of the evaluation chain.
-        :rtype: list[dict | None, list[list[str, str]]]
+        :return: A list with, first, the evaluation result (a dict), and then a list with the full history of the
+            evaluation chain (each of which is a list with two strings, a prompt and a response).
+        :rtype: list
         """
 
         return super().evaluate(chat_history=chat_history, survey_context=survey_context,
@@ -794,7 +801,7 @@ of {{}}."""
 
     @overrides
     async def a_evaluate(self, chat_history: list = None, survey_context: str = "", survey_locations: str = "",
-                         survey_excerpt: str = "", **kwargs) -> list[dict | None, list[list[str, str]]]:
+                         survey_excerpt: str = "", **kwargs) -> list:
         """
         Override default a_evaluate method.
 
@@ -808,8 +815,9 @@ of {{}}."""
         :type survey_excerpt: str
         :param kwargs: Keyword arguments to use for formatting the task system prompt and question.
         :type kwargs: Any
-        :return: A list with the evaluation result and a list with the full history of the evaluation chain.
-        :rtype: list[dict | None, list[list[str, str]]]
+        :return: A list with, first, the evaluation result (a dict), and then a list with the full history of the
+            evaluation chain (each of which is a list with two strings, a prompt and a response).
+        :rtype: list
         """
 
         return await super().a_evaluate(chat_history=chat_history, survey_context=survey_context,
