@@ -16,7 +16,7 @@ spacy~=3.6.0
 pdfminer.six
 easyocr
 pdf2image~=1.16.3
-tabula-py
+tabula-py~=2.9.0
 pypdf~=4.0.1
 pytesseract~=0.3.10
 tokenizers
@@ -32,3 +32,5 @@ lxml
 requests~=2.31.0
 tqdm~=4.65.0
 overrides~=7.3.1
+sphinx~=5.3
+sphinx-rtd-theme~=1.1

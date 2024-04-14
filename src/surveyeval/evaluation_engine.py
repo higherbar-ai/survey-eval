@@ -1,4 +1,4 @@
-#  Copyright (c) 2023 Higher Bar AI, PBC
+#  Copyright (c) 2023-24 Higher Bar AI, PBC
 #
 #  Licensed under the Apache License, Version 2.0 (the "License");
 #  you may not use this file except in compliance with the License.
@@ -15,9 +15,9 @@
 """Core classes for instrument evaluation engine."""
 
 from langchain_openai import ChatOpenAI, AzureChatOpenAI
-from langchain.prompts import SystemMessagePromptTemplate, HumanMessagePromptTemplate, ChatPromptTemplate
+from langchain_core.prompts import SystemMessagePromptTemplate, HumanMessagePromptTemplate, ChatPromptTemplate
 from langchain.memory import ConversationSummaryBufferMemory, ChatMessageHistory
-from langchain import ConversationChain
+from langchain.chains import ConversationChain
 import re
 import tiktoken
 import json
@@ -26,24 +26,7 @@ import logging
 
 
 class EvaluationEngine:
-    """Main class for instrument evaluation engine.
-
-    Attributes:
-        summarize_model (str): LLM model to use for summarizing multistep conversations.
-        summarize_provider (str): Provider name for the summarization model ("openai" or "azure").
-        evaluation_model (str): LLM model to use for instrument evaluation (when using Azure, the
-            deployment or engine name must be the same as the model name).
-        evaluation_provider (str): Provider name for the evaluation model ("openai" or "azure").
-        openai_api_key (str): API key for OpenAI services (if evaluation_provider is "openai").
-        azure_api_key (str): API key for Azure services (if evaluation_provider is "azure").
-        azure_api_base (str): Base URL for Azure API (if evaluation_provider is "azure").
-        azure_api_version (str): Version of the Azure API (if evaluation_provider is "azure").
-        tiktoken_model_name (str): Name of the model used with TikToken, if different from evaluation_model.
-        tokenizer (tiktoken.Encoding): Tokenizer instance for token-counting.
-        temperature (float): Temperature setting for AI model responses.
-        max_retries (int): Maximum number of times to retry a request to the AI model.
-        logger (logging.Logger): Logger instance for logging messages.
-    """
+    """Main class for instrument evaluation engine."""
 
     summarize_model: str
     summarize_provider: str
@@ -283,7 +266,7 @@ Assistant:"""
         return llm_chain
 
     async def a_run_evaluation_chain(self, task_system_prompt: str, question: str, followups: list[dict],
-                                     chat_history: list = None) -> list[dict | None, list[list[str, str]]]:
+                                     chat_history: list = None) -> list:
         """
         Run an evaluation chain (asynchronously).
 
@@ -306,8 +289,9 @@ Assistant:"""
         :type followups: list[dict]
         :param chat_history: Chat history to use for the evaluation chain (or None for none).
         :type chat_history: list
-        :return: A list with the evaluation result and a list with the full history of the evaluation chain.
-        :rtype: list[dict | None, list[list[str, str]]]
+        :return: A list with, first, the evaluation result (a dict), and then a list with the full history of the
+            evaluation chain (each of which is a list with two strings, a prompt and a response).
+        :rtype: list
         """
 
         # initialize new evaluation chain
@@ -364,7 +348,7 @@ Assistant:"""
         return [response_dict, full_history]
 
     def run_evaluation_chain(self, task_system_prompt: str, question: str, followups: list[dict],
-                             chat_history: list = None) -> list[dict | None, list[list[str, str]]]:
+                             chat_history: list = None) -> list:
         """
         Run an evaluation chain (synchronously).
 
@@ -387,8 +371,9 @@ Assistant:"""
         :type followups: list[dict]
         :param chat_history: Chat history to use for the evaluation chain (or None for none).
         :type chat_history: list
-        :return: A list with the evaluation result and a list with the full history of the evaluation chain.
-        :rtype: list[dict | None, list[list[str, str]]]
+        :return: A list with, first, the evaluation result (a dict), and then a list with the full history of the
+            evaluation chain (each of which is a list with two strings, a prompt and a response).
+        :rtype: list
         """
 
         # run asynchronous process synchronously
@@ -404,7 +389,7 @@ Assistant:"""
 
     async def a_followup_question(self, condition_func: callable, condition_key: str, condition_value,
                                   prompt_template: str, response_dict: dict, llm_chain: ConversationChain,
-                                  chat_history: list = None) -> list[dict | None, str, str]:
+                                  chat_history: list = None) -> list:
         """
         Ask a follow-up question (asynchronously).
 
@@ -425,7 +410,7 @@ Assistant:"""
         :type chat_history: list
         :return: A list with the updated response dictionary (if any), the prompt that was asked ('' if follow-up not
             asked), and the response that was received.
-        :rtype: list[dict | None, str, str]
+        :rtype: list
         """
 
         # check to see if we meet the criteria for this follow-up
@@ -467,34 +452,13 @@ Assistant:"""
 
 
 class EvaluationLens:
-    """
-    Class for instrument evaluation lens, which is used to conduct a particular type of evaluation.
-
-    Attributes:
-        evaluation_engine (EvaluationEngine): Evaluation engine instance to use for conducting evaluation.
-        task_system_prompt_template (str): System prompt template to use for the evaluation chain. This can include the
-            {survey_context} and {survey_locations} variables to include information about the survey context. It
-            should specify a specific JSON format for all responses.
-        question_template (str): Initial question to ask, to begin the evaluation chain. This should include the
-            {survey_excerpt} variable to include the appropriate excerpt being evaluated.
-        followups (list[dict]): List of follow-up questions to ask, based on the JSON response to the initial question.
-            Should be a list of dicts, each with a value for each of the following keys:
-            "condition_func": function that returns True when the follow-up should be asked and False when it
-            shouldn't (should take the following parameters: response_dict: dict, condition_key: str,
-            condition_value: value to check against the one in the response dict);
-            "condition_key": the key in the response dict to check;
-            "condition_value": the value to check against the one in the response dict;
-            "prompt_template": the template for the follow-up question to ask (which can include variables from
-            the response dict).
-        evaluation_result (list[dict | None, list[list[str, str]]] | None): A list with the evaluation result (or None)
-            and a list with the full history of the evaluation chain (or None).
-    """
+    """Class for instrument evaluation lens, which is used to conduct a particular type of evaluation."""
 
     evaluation_engine: EvaluationEngine
     task_system_prompt_template: str
     question_template: str
     followups: list[dict]
-    evaluation_result: list[dict | None, list[list[str, str]]] | None
+    evaluation_result: list
 
     def __init__(self, task_system_prompt_template: str, question_template: str, followups: list[dict],
                  evaluation_engine: EvaluationEngine):
@@ -530,9 +494,9 @@ class EvaluationLens:
         self.question_template = question_template
         self.followups = followups
         self.evaluation_engine = evaluation_engine
-        self.evaluation_result = None
+        self.evaluation_result = []
 
-    def evaluate(self, chat_history=None, **kwargs) -> list[dict | None, list[list[str, str]]]:
+    def evaluate(self, chat_history=None, **kwargs) -> list:
         """
         Run an evaluation chain (synchronously).
 
@@ -540,8 +504,9 @@ class EvaluationLens:
         :type chat_history: list
         :param kwargs: Keyword arguments to use for formatting the task system prompt and question.
         :type kwargs: Any
-        :return: A list with the evaluation result and a list with the full history of the evaluation chain.
-        :rtype: list[dict | None, list[list[str, str]]]
+        :return: A list with, first, the evaluation result (a dict), and then a list with the full history of the
+            evaluation chain (each of which is a list with two strings, a prompt and a response).
+        :rtype: list
         """
 
         # call evaluation engine to run evaluation chain
@@ -551,7 +516,7 @@ class EvaluationLens:
             followups=self.followups, chat_history=chat_history)
         return self.evaluation_result
     
-    async def a_evaluate(self, chat_history=None, **kwargs) -> list[dict | None, list[list[str, str]]]:
+    async def a_evaluate(self, chat_history=None, **kwargs) -> list:
         """
         Run an evaluation chain (asynchronously).
 
@@ -559,8 +524,9 @@ class EvaluationLens:
         :type chat_history: list
         :param kwargs: Keyword arguments to use for formatting the task system prompt and question.
         :type kwargs: Any
-        :return: A list with the evaluation result and a list with the full history of the evaluation chain.
-        :rtype: list[dict | None, list[list[str, str]]]
+        :return: A list with, first, the evaluation result (a dict), and then a list with the full history of the
+            evaluation chain (each of which is a list with two strings, a prompt and a response).
+        :rtype: list
         """
 
         # call evaluation engine to run evaluation chain
