@@ -1,5 +1,5 @@
-survey-eval Python Package Documentation
-========================================
+surveyeval Python Package Documentation
+=======================================
 
 .. include:: ../../README.rst
     :start-after: ==========
