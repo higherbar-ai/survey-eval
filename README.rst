@@ -13,6 +13,11 @@ Installing the latest version with pip::
 
     pip install surveyeval
 
+Note that you might need to install additional requirements to use the ``survey_parser`` module. Only requirements for
+the core evaluation engine are automatically installed by ``pip``. To install all requirements, run::
+
+    pip install -r requirements.txt
+
 Overview
 ---------
 
