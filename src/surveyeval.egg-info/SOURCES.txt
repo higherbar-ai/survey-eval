@@ -1,0 +1,12 @@
+LICENSE
+README.rst
+setup.py
+src/surveyeval/__init__.py
+src/surveyeval/core_evaluation_lenses.py
+src/surveyeval/evaluation_engine.py
+src/surveyeval/survey_parser.py
+src/surveyeval.egg-info/PKG-INFO
+src/surveyeval.egg-info/SOURCES.txt
+src/surveyeval.egg-info/dependency_links.txt
+src/surveyeval.egg-info/requires.txt
+src/surveyeval.egg-info/top_level.txt

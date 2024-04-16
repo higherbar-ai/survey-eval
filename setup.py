@@ -19,14 +19,14 @@ with open('README.rst') as file:
 
 setup(
     name='surveyeval',
-    version='0.1.1',
+    version='0.1.3',
     packages=['surveyeval'],
     python_requires='>=3.10',
     install_requires=[
         'bs4~=0.0.1',
         'tiktoken~=0.5.2',
         'openai~=1.10.0',
-        'langchain~=0.1.13',
+        'langchain~=0.1.15',
         'langchain-openai~=0.0.5',
         'langchain-community~=0.0.17',
         'unstructured[local-inference]',
@@ -48,7 +48,7 @@ setup(
         'docx',
         'mammoth',
         'markdownify',
-        'kor~=0.13.0',
+        'kor~=1.0.0',
         'scrapy~=2.11.1',
         'ipywidgets',
         'chromadb',

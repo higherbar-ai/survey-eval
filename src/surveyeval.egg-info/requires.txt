@@ -32,8 +32,3 @@ lxml
 requests~=2.31.0
 tqdm~=4.65.0
 overrides~=7.3.1
-# dev environment
-setuptools>=65.5.1
-twine~=4.0
-sphinx~=5.3
-sphinx-rtd-theme~=1.1
