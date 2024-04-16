@@ -1,7 +1,7 @@
 bs4~=0.0.1
 tiktoken~=0.5.2
 openai~=1.10.0
-langchain~=0.1.13
+langchain~=0.1.15
 langchain-openai~=0.0.5
 langchain-community~=0.0.17
 unstructured[local-inference]
