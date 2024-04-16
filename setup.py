@@ -48,7 +48,7 @@ setup(
         'docx',
         'mammoth',
         'markdownify',
-        'kor~=0.13.0',
+        'kor~=1.0.0',
         'scrapy~=2.11.1',
         'ipywidgets',
         'chromadb',
