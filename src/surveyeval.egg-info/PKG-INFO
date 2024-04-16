@@ -1,6 +1,6 @@
 Metadata-Version: 2.1
 Name: surveyeval
-Version: 0.1.2
+Version: 0.1.3
 Summary: A toolkit for survey evaluation
 Home-page: https://github.com/higherbar-ai/survey-eval
 Author: Christopher Robert
@@ -12,7 +12,7 @@ License-File: LICENSE
 Requires-Dist: bs4~=0.0.1
 Requires-Dist: tiktoken~=0.5.2
 Requires-Dist: openai~=1.10.0
-Requires-Dist: langchain~=0.1.13
+Requires-Dist: langchain~=0.1.15
 Requires-Dist: langchain-openai~=0.0.5
 Requires-Dist: langchain-community~=0.0.17
 Requires-Dist: unstructured[local-inference]
