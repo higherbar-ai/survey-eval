@@ -17,7 +17,7 @@ from .core_evaluation_lenses import (BiasEvaluationLens, PhrasingEvaluationLens,
                                      ValidatedInstrumentEvaluationLens)
 
 # report our current version, as installed
-from importlib_metadata import version
+from importlib.metadata import version
 try:
     __version__ = version("surveyeval")
 except Exception:
