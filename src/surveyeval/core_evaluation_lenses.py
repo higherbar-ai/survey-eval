@@ -217,6 +217,44 @@ empty JSON response of {{}}."""
             self.evaluation_engine.logger.error(formatted_result)
         return formatted_result
 
+    def standardize_result(self, result: dict | None = None) -> list[dict]:
+        """
+        Reorganize the evaluation result into a list of recommendations in a standardized format.
+
+        :param result: Evaluation result to format (or None to use the evaluation_result attribute).
+        :type result: dict | None
+        :return: List of recommendations, each of which is a dict with the following keys: importance (int 1-5),
+            replacement_original (str), replacement_suggested (str), explanation (str).
+        :rtype: list[dict]
+        """
+
+        # use evaluation_result attribute if no result is passed
+        if result is not None:
+            result_to_format = result
+        else:
+            result_to_format = self.evaluation_result
+
+        # organize and return result
+        return_list = []
+        try:
+            # first make sure we have a result to organize
+            if result_to_format is not None and result_to_format["Number of phrases"] > 0:
+                # sort the results by severity
+                sorted_indices = sorted(range(len(result_to_format["Severities"])),
+                                        key=lambda idx: result_to_format["Severities"][idx], reverse=True)
+                # run through each result, appending to our return list
+                for i in sorted_indices:
+                    return_list.append({
+                        'importance': result_to_format['Severities'][i],
+                        'replacement_original': result_to_format['Phrases'][i],
+                        'replacement_suggested': result_to_format['Recommendations'][i],
+                        'explanation': result_to_format['Explanations'][i]
+                    })
+        except Exception as e:
+            raise RuntimeError(f"Error occurred formatting result: {str(e)}\n\n"
+                               f"Raw JSON: {json.dumps(result_to_format, indent=4)}") from e
+        return return_list
+
 
 class ValidatedInstrumentEvaluationLens(EvaluationLens):
     """
@@ -479,6 +517,66 @@ from 1 to 5, based on the strength of the recommendation (including all fields).
             self.evaluation_engine.logger.error(formatted_result)
         return formatted_result
 
+    def standardize_result(self, result: dict | None = None) -> list[dict]:
+        """
+        Reorganize the evaluation result into a list of recommendations in a standardized format.
+
+        :param result: Evaluation result to format (or None to use the evaluation_result attribute).
+        :type result: dict | None
+        :return: List of recommendations, each of which is a dict with the following keys: importance (int 1-5),
+            replacement_original (str), replacement_suggested (str), explanation (str).
+        :rtype: list[dict]
+        """
+
+        # use evaluation_result attribute if no result is passed
+        if result is not None:
+            result_to_format = result
+        else:
+            result_to_format = self.evaluation_result
+
+        # organize and return result
+        return_list = []
+        try:
+            # first make sure we have a meaningful result to organize
+            if result_to_format is not None and result_to_format["Recommendation"]:
+                # start with the recommendation itself
+                explanation = (f"Consider adapting {result_to_format['Recommendation name']}. "
+                               f"{result_to_format['Recommendation explanation']} "
+                               f"(Learn more: {result_to_format['Recommendation URL']})")
+
+                # add information about what the excerpt is attempting to measure (if any)
+                if len(result_to_format["Measuring"]) == 0:
+                    measuring_str = ""
+                elif len(result_to_format["Measuring"]) == 1:
+                    measuring_str = str(result_to_format["Measuring"][0])
+                else:
+                    measuring_str = ', '.join(result_to_format["Measuring"])
+                if measuring_str:
+                    explanation += f"\n\nFYI, you appear to be measuring {measuring_str}."
+
+                if result_to_format["Replication"]:
+                    explanation += (f'\n\nFYI, this could be a replication of '
+                                    f'"{result_to_format["Replication name"]}". '
+                                    f'{result_to_format["Replication explanation"]} (Learn more: '
+                                    f'{result_to_format["Replication URL"]})')
+                if result_to_format["Adaptation"]:
+                    explanation += (f'\n\nFYI, this could be an adaptation of '
+                                    f'"{result_to_format["Adaptation name"]}". '
+                                    f'{result_to_format["Adaptation explanation"]} (Learn more: '
+                                    f'{result_to_format["Adaptation URL"]})')
+
+                # append our one and only recommendation to the return list
+                return_list.append({
+                    'importance': result_to_format['Recommendation strength'],
+                    'replacement_original': "",
+                    'replacement_suggested': "",
+                    'explanation': explanation
+                })
+        except Exception as e:
+            raise RuntimeError(f"Error occurred formatting result: {str(e)}\n\n"
+                               f"Raw JSON: {json.dumps(result_to_format, indent=4)}") from e
+        return return_list
+
 
 class TranslationEvaluationLens(EvaluationLens):
     """
@@ -685,6 +783,44 @@ response of {{}}."""
             self.evaluation_engine.logger.error(formatted_result)
         return formatted_result
 
+    def standardize_result(self, result: dict | None = None) -> list[dict]:
+        """
+        Reorganize the evaluation result into a list of recommendations in a standardized format.
+
+        :param result: Evaluation result to format (or None to use the evaluation_result attribute).
+        :type result: dict | None
+        :return: List of recommendations, each of which is a dict with the following keys: importance (int 1-5),
+            replacement_original (str), replacement_suggested (str), explanation (str).
+        :rtype: list[dict]
+        """
+
+        # use evaluation_result attribute if no result is passed
+        if result is not None:
+            result_to_format = result
+        else:
+            result_to_format = self.evaluation_result
+
+        # organize and return result
+        return_list = []
+        try:
+            # first make sure we have a result to organize
+            if result_to_format is not None and result_to_format["Number of phrases"] > 0:
+                # sort the results by severity
+                sorted_indices = sorted(range(len(result_to_format["Severities"])),
+                                        key=lambda idx: result_to_format["Severities"][idx], reverse=True)
+                # run through each result, appending to our return list
+                for i in sorted_indices:
+                    return_list.append({
+                        'importance': result_to_format['Severities'][i],
+                        'replacement_original': result_to_format['Phrases'][i],
+                        'replacement_suggested': result_to_format['Recommendations'][i],
+                        'explanation': result_to_format['Explanations'][i]
+                    })
+        except Exception as e:
+            raise RuntimeError(f"Error occurred formatting result: {str(e)}\n\n"
+                               f"Raw JSON: {json.dumps(result_to_format, indent=4)}") from e
+        return return_list
+
 
 class BiasEvaluationLens(EvaluationLens):
     """
@@ -868,3 +1004,41 @@ of {{}}."""
                                 f"Raw JSON: {json.dumps(result_to_format, indent=4)}")
             self.evaluation_engine.logger.error(formatted_result)
         return formatted_result
+
+    def standardize_result(self, result: dict | None = None) -> list[dict]:
+        """
+        Reorganize the evaluation result into a list of recommendations in a standardized format.
+
+        :param result: Evaluation result to format (or None to use the evaluation_result attribute).
+        :type result: dict | None
+        :return: List of recommendations, each of which is a dict with the following keys: importance (int 1-5),
+            replacement_original (str), replacement_suggested (str), explanation (str).
+        :rtype: list[dict]
+        """
+
+        # use evaluation_result attribute if no result is passed
+        if result is not None:
+            result_to_format = result
+        else:
+            result_to_format = self.evaluation_result
+
+        # organize and return result
+        return_list = []
+        try:
+            # first make sure we have a result to organize
+            if result_to_format is not None and result_to_format["Number of phrases"] > 0:
+                # sort the results by severity
+                sorted_indices = sorted(range(len(result_to_format["Severities"])),
+                                        key=lambda idx: result_to_format["Severities"][idx], reverse=True)
+                # run through each result, appending to our return list
+                for i in sorted_indices:
+                    return_list.append({
+                        'importance': result_to_format['Severities'][i],
+                        'replacement_original': result_to_format['Phrases'][i],
+                        'replacement_suggested': result_to_format['Recommendations'][i],
+                        'explanation': result_to_format['Explanations'][i]
+                    })
+        except Exception as e:
+            raise RuntimeError(f"Error occurred formatting result: {str(e)}\n\n"
+                               f"Raw JSON: {json.dumps(result_to_format, indent=4)}") from e
+        return return_list

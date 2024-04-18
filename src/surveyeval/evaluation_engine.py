@@ -148,8 +148,12 @@ class EvaluationEngine:
         :rtype: str
         """
 
-        # TBD
-        trimmed_json = json_str
+        # trim leading and trailing whitespace
+        trimmed_json = json_str.strip()
+        # trim enclosing code blocks
+        trimmed_json = re.sub(r'^```json\n', '', trimmed_json)
+        trimmed_json = re.sub(r'^```\n', '', trimmed_json)
+        trimmed_json = re.sub(r'\n```$', '', trimmed_json)
 
         return trimmed_json
 
