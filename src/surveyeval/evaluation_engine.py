@@ -138,6 +138,22 @@ class EvaluationEngine:
         return s
 
     @staticmethod
+    def trim_json(json_str: str) -> str:
+        """
+        Trim common leading and trailing characters from JSON string.
+
+        :param json_str: JSON string to trim
+        :type json_str: str
+        :return: Trimmed JSON string
+        :rtype: str
+        """
+
+        # TBD
+        trimmed_json = json_str
+
+        return trimmed_json
+
+    @staticmethod
     def clean_whitespace(s: str) -> str:
         """
         Strip whitespace from prompt string in order to economize on tokens.
@@ -266,7 +282,7 @@ Assistant:"""
         return llm_chain
 
     async def a_run_evaluation_chain(self, task_system_prompt: str, question: str, followups: list[dict],
-                                     chat_history: list = None) -> list:
+                                     chat_history: list = None) -> dict:
         """
         Run an evaluation chain (asynchronously).
 
@@ -289,14 +305,19 @@ Assistant:"""
         :type followups: list[dict]
         :param chat_history: Chat history to use for the evaluation chain (or None for none).
         :type chat_history: list
-        :return: A list with, first, the evaluation result (a dict), and then a list with the full history of the
-            evaluation chain (each of which is a list with two strings, a prompt and a response).
-        :rtype: list
+        :return: A dict with result ("success" or "error"), error (if result is "error"), response (a dict),
+            and history (a list with the full history of the evaluation chain, each item of which is a list with two
+            strings, a prompt and a response).
+        :rtype: dict
         """
 
         # initialize new evaluation chain
         llm_chain = self.get_chain(system_prompt=task_system_prompt, starting_chat_history=chat_history,
                                    max_history_tokens=6000)
+
+        # initialize results
+        result_dict = {"result": None, "error": None, "response": None, "history": None}
+        response_dict = None
         full_history = []
 
         # ask our question to the LLM, retrying the appropriate number of times
@@ -325,30 +346,39 @@ Assistant:"""
 
         # parse result as JSON
         try:
-            response_dict = json.loads(json_response)
+            response_dict = json.loads(EvaluationEngine.trim_json(json_response))
         except Exception as e:
-            self.logger.error(f"Error occurred parsing JSON ({str(e)}); raw JSON: {json_response}")
-            return [None, full_history]
+            error_message = f"Error occurred parsing LLM's JSON response ({str(e)}); raw JSON: {json_response}"
+            self.logger.error(error_message)
+            result_dict["result"] = "error"
+            result_dict["error"] = error_message
+        else:
+            # unless something goes wrong later, presume we're successful
+            result_dict["result"] = "success"
 
-        # ask follow-up questions
-        for followup in followups:
-            updated_data = await self.a_followup_question(**followup, response_dict=response_dict, llm_chain=llm_chain,
-                                                          chat_history=chat_history)
-            # parse response
-            updated_response = updated_data[0]
-            prompt = updated_data[1]
-            json_response = updated_data[2]
-            # if we actually asked a follow-up, include it in the history
-            if prompt:
-                full_history.append([prompt, json_response])
-            # if we actually got a parsed response, update the response dict
-            if updated_response:
-                response_dict.update(updated_response)
+            # ask follow-up questions
+            for followup in followups:
+                followup_result = await self.a_followup_question(**followup, response_dict=response_dict,
+                                                                 llm_chain=llm_chain, chat_history=chat_history)
 
-        return [response_dict, full_history]
+                # if we actually asked a follow-up, include it in the history
+                if followup_result["result"] != "skipped":
+                    full_history.append([prompt, json_response])
+                if followup_result["result"] == "success" and followup_result["response"]:
+                    # if we actually got a parsed response, update the response dict
+                    response_dict.update(followup_result["response"])
+                elif followup_result["result"] == "error":
+                    # otherwise, if we got an error, update the result dict to reflect that
+                    result_dict["error"] = followup_result["error"]
+                    result_dict["result"] = "error"
+
+        # assemble and return results
+        result_dict["response"] = response_dict
+        result_dict["history"] = full_history
+        return result_dict
 
     def run_evaluation_chain(self, task_system_prompt: str, question: str, followups: list[dict],
-                             chat_history: list = None) -> list:
+                             chat_history: list = None) -> dict:
         """
         Run an evaluation chain (synchronously).
 
@@ -371,9 +401,10 @@ Assistant:"""
         :type followups: list[dict]
         :param chat_history: Chat history to use for the evaluation chain (or None for none).
         :type chat_history: list
-        :return: A list with, first, the evaluation result (a dict), and then a list with the full history of the
-            evaluation chain (each of which is a list with two strings, a prompt and a response).
-        :rtype: list
+        :return: A dict with result ("success" or "error"), error (if result is "error"), response (a dict),
+            and history (a list with the full history of the evaluation chain, each item of which is a list with two
+            strings, a prompt and a response).
+        :rtype: dict
         """
 
         # run asynchronous process synchronously
@@ -389,7 +420,7 @@ Assistant:"""
 
     async def a_followup_question(self, condition_func: callable, condition_key: str, condition_value,
                                   prompt_template: str, response_dict: dict, llm_chain: ConversationChain,
-                                  chat_history: list = None) -> list:
+                                  chat_history: list = None) -> dict:
         """
         Ask a follow-up question (asynchronously).
 
@@ -408,16 +439,20 @@ Assistant:"""
         :type llm_chain: ConversationChain
         :param chat_history: Chat history to use for the evaluation chain (or None for none).
         :type chat_history: list
-        :return: A list with the updated response dictionary (if any), the prompt that was asked ('' if follow-up not
-            asked), and the response that was received.
-        :rtype: list
+        :return: A dict with result ("success", "error", or "skipped"), error (if result is "error"), prompt (a str),
+            response_json (a str), and response (a dict).
+        :rtype: dict
         """
+
+        # initialize results
+        result_dict = {"result": None, "error": None, "prompt": None, "response_json": None, "response": None}
 
         # check to see if we meet the criteria for this follow-up
         if condition_func(response_dict, condition_key, condition_value):
             # if so, format the question
             followup_question = prompt_template.format(**response_dict)
             prompt = followup_question.strip()
+            result_dict["prompt"] = prompt
 
             # ask question to the LLM, retrying the appropriate number of times
             attempt = 0
@@ -440,15 +475,21 @@ Assistant:"""
 
             # parse result as JSON
             json_response = result["answer"].strip()
+            result_dict["response_json"] = json_response
             if json_response != "{}":
                 try:
-                    return [json.loads(json_response), prompt, json_response]
+                    result_dict["response"] = json.loads(EvaluationEngine.trim_json(json_response))
+                    result_dict["result"] = "success"
                 except Exception as e:
-                    self.logger.error(f"Error occurred parsing JSON ({str(e)}); raw JSON: {json_response}")
-            return [None, prompt, json_response]
+                    error_message = f"Error occurred parsing LLM's JSON response ({str(e)}); raw JSON: {json_response}"
+                    self.logger.error(error_message)
+                    result_dict["error"] = error_message
+                    result_dict["result"] = "error"
+        else:
+            result_dict["result"] = "skipped"
 
-        # return empty values if we don't meet the criteria for this follow-up
-        return [None, '', '']
+        # return assembled result
+        return result_dict
 
 
 class EvaluationLens:
@@ -458,7 +499,7 @@ class EvaluationLens:
     task_system_prompt_template: str
     question_template: str
     followups: list[dict]
-    evaluation_result: list
+    evaluation_result: dict
 
     def __init__(self, task_system_prompt_template: str, question_template: str, followups: list[dict],
                  evaluation_engine: EvaluationEngine):
@@ -494,9 +535,9 @@ class EvaluationLens:
         self.question_template = question_template
         self.followups = followups
         self.evaluation_engine = evaluation_engine
-        self.evaluation_result = []
+        self.evaluation_result = {}
 
-    def evaluate(self, chat_history=None, **kwargs) -> list:
+    def evaluate(self, chat_history=None, **kwargs) -> dict:
         """
         Run an evaluation chain (synchronously).
 
@@ -504,9 +545,10 @@ class EvaluationLens:
         :type chat_history: list
         :param kwargs: Keyword arguments to use for formatting the task system prompt and question.
         :type kwargs: Any
-        :return: A list with, first, the evaluation result (a dict), and then a list with the full history of the
-            evaluation chain (each of which is a list with two strings, a prompt and a response).
-        :rtype: list
+        :return: A dict with result ("success" or "error"), error (if result is "error"), response (a dict),
+            and history (a list with the full history of the evaluation chain, each item of which is a list with two
+            strings, a prompt and a response).
+        :rtype: dict
         """
 
         # call evaluation engine to run evaluation chain
@@ -516,7 +558,7 @@ class EvaluationLens:
             followups=self.followups, chat_history=chat_history)
         return self.evaluation_result
     
-    async def a_evaluate(self, chat_history=None, **kwargs) -> list:
+    async def a_evaluate(self, chat_history=None, **kwargs) -> dict:
         """
         Run an evaluation chain (asynchronously).
 
@@ -524,9 +566,10 @@ class EvaluationLens:
         :type chat_history: list
         :param kwargs: Keyword arguments to use for formatting the task system prompt and question.
         :type kwargs: Any
-        :return: A list with, first, the evaluation result (a dict), and then a list with the full history of the
-            evaluation chain (each of which is a list with two strings, a prompt and a response).
-        :rtype: list
+        :return: A dict with result ("success" or "error"), error (if result is "error"), response (a dict),
+            and history (a list with the full history of the evaluation chain, each item of which is a list with two
+            strings, a prompt and a response).
+        :rtype: dict
         """
 
         # call evaluation engine to run evaluation chain
@@ -550,7 +593,7 @@ class EvaluationLens:
         if result is not None:
             result_to_format = result
         else:
-            result_to_format = self.evaluation_result
+            result_to_format = self.evaluation_result[0]
 
         # return empty string if no result is available to format
         if result_to_format is None:
