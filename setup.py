@@ -30,6 +30,9 @@ setup(
         'langchain-community~=0.0.17',
         'overrides~=7.3.1',
     ],
+    package_data={
+        'surveyeval': ['resources/*'], # include resource files in package
+    },
     package_dir={'': 'src'},
     url='https://github.com/higherbar-ai/survey-eval',
     project_urls={'Documentation': 'https://surveyeval.readthedocs.io/'},
