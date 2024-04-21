@@ -51,15 +51,16 @@ from langchain.schema import Document as SchemaDocument
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.document_loaders import UnstructuredFileLoader, UnstructuredExcelLoader
 import importlib.resources as pkg_resources
+from openpyxl import load_workbook
 
 # initialize global resources
 parser_logger = logging.getLogger(__name__)
 nltk.download('punkt')
 nlp = spacy.load('en_core_web_sm')
-empty_form_path = pkg_resources.files('surveyeval').joinpath('resources/EmptyForm.xlsx')
+empty_form_path = str(pkg_resources.files('surveyeval').joinpath('resources/EmptyForm.xlsx'))
 
 # initialize global variables
-langchain_splitter_chunk_size = 4000
+langchain_splitter_chunk_size = 3000
 langchain_splitter_overlap_size = 500
 
 # initialize parsing schema
@@ -84,15 +85,18 @@ question_spec = ('The exact text of the question or form field, including any in
                  '"language" field. Never translate between languages or otherwise alter the question text in any way.')
 instructions_spec = ('Instructions or other guidance about how to ask or answer the '
                      'question, including enumerator or interviewer instructions. If the question includes '
-                     'a list of specific response options, do NOT include those in the instructions.')
+                     'a list of specific response options, do NOT include those in the instructions. However, if '
+                     'there is guidance as to how to fill out an open-ended numeric or text response, or guidance '
+                     'about how to choose among the options, include that guidance here.')
 options_spec = ("The list of specific response options for multiple-choice questions, "
-                "including both the label for the option and the internal value, if specified. For example, "
+                "including both the label and the internal value (if specified) for each option. For example, "
                 "a 'Male' label might be coupled with an internal value of '1', 'M', or even 'male'. "
                 "Separate response options with a space, three pipe symbols ('|||'), and another space, and, "
                 "if there is an internal value, add a space, three # symbols ('###'), and the internal value "
                 "at the end of the label. For example: 'Male ### 1 ||| Female ### 2' (codes included) or "
                 "'Male ||| Female' (no codes); 'Yes ### yes ||| No ### no', 'Yes ### 1 ||| No ### 0', 'Yes ### "
-                "y ||| No ### n', or 'YES ||| NO'.")
+                "y ||| No ### n', or 'YES ||| NO'. Do NOT include fill-in-the-blank content here, only "
+                "multiple-choice options. If the question is open-ended, leave this field blank. ")
 language_spec = 'The primary language in which the question text is written.'
 
 
@@ -678,6 +682,29 @@ NOT A BIG PROBLEM = 2""",
                         instructions=None,
                         options="BIG PROBLEM ### 1 ||| NOT A BIG PROBLEM ### 2",
                         language="English"
+                    ),
+                ]
+            ),
+        ]
+    ),
+    (
+        """Module: HISTORY3 | Question: 1454 | Language: AFRIKAANS
+
+Hoeveel keer het dit in die afgelope 12 maande met jou gebeur?
+
+NUMBER OF TIMES: _______""",
+        [
+            Module(
+                module_name="HISTORY3",
+                module_title=None,
+                module_intro=None,
+                questions=[
+                    Question(
+                        question_id="1454",
+                        question="Hoeveel keer het dit in die afgelope 12 maande met jou gebeur?",
+                        instructions="NUMBER OF TIMES:",
+                        options=None,
+                        language="AFRIKAANS"
                     ),
                 ]
             ),
@@ -1578,3 +1605,152 @@ async def extract_data_from_directory(path_to_ingest: str, chain: LLMChain) -> l
             data_list.append(await extract_data(chain, file_path))
 
     return data_list
+
+
+def _add_header_to_first_empty_cell(worksheet, header):
+    for cell in worksheet[1]:
+        if cell.value is None or not cell.value:
+            cell.value = header
+            break
+    else:  # no break, meaning no empty cell was found
+        max_column = worksheet.max_column
+        worksheet.cell(row=1, column=max_column + 1, value=header)
+
+
+def _get_columns_from_headers(worksheet) -> dict:
+    return {cell.value: i + 1 for i, cell in enumerate(worksheet[1])
+            if cell.value is not None and cell.value.strip() != ''}
+
+
+def output_parsed_data_to_xlsform(data: dict, form_id: str, form_title: str, output_file: str):
+    """
+    Output parsed data to an XLSForm file.
+
+    :param data: Parsed data to output.
+    :type data: dict
+    :param form_id: Form ID to set in the XLSForm file.
+    :type form_id: str
+    :param form_title: Form title to set in the XLSForm file.
+    :type form_title: str
+    :param output_file: Path to the output XLSForm file.
+    :type output_file: str
+    """
+
+    # load the workbook
+    wb = load_workbook(empty_form_path)
+    survey_ws = wb['survey']
+    survey_columns = _get_columns_from_headers(survey_ws)
+    choices_ws = wb['choices']
+    choices_columns = _get_columns_from_headers(choices_ws)
+    settings_ws = wb['settings']
+    settings_columns = _get_columns_from_headers(settings_ws)
+
+    # set the 'form_title' and 'form_id' values in row 2
+    settings_ws.cell(row=2, column=settings_columns['form_id'], value=form_id)
+    settings_ws.cell(row=2, column=settings_columns['form_title'], value=form_title)
+
+    # initialize our row counters to start adding at the second row
+    survey_row_counter = 2
+    choices_row_counter = 2
+
+    # iterate over each module in the data
+    primary_language = ""
+    for module in data.values():
+        # create a safe version of the module name by replacing anything not a digit or a letter with an _
+        safe_module_name = re.sub(r'\W+', '_', module['module_name']).lower()
+
+        # open a group for the module
+        survey_ws.cell(row=survey_row_counter, column=survey_columns['type'], value='begin group')
+        survey_ws.cell(row=survey_row_counter, column=survey_columns['name'], value=safe_module_name)
+        if module['module_title']:
+            survey_ws.cell(row=survey_row_counter, column=survey_columns['label'], value=module['module_title'])
+        survey_row_counter += 1
+
+        # if there is a 'module_intro' value in the module, add it as a note field
+        if module['module_intro']:
+            survey_ws.cell(row=survey_row_counter, column=survey_columns['type'], value='note')
+            survey_ws.cell(row=survey_row_counter, column=survey_columns['label'], value=module['module_intro'])
+            survey_row_counter += 1
+
+        # iterate over each question in the module
+        for question_id, question_data in module['questions'].items():
+            # create a safe version of the question ID by replacing anything not a digit or a letter with an _
+            safe_question_id = re.sub(r'\W+', '_', question_id).lower()
+            # if safe_question_id doesn't begin with a letter, put a 'q' on the front
+            if not safe_question_id[0].isalpha():
+                safe_question_id = 'q' + safe_question_id
+
+            # iterate over each translation for the question
+            has_choices = False
+            for translation in question_data:
+                # if we don't have our primary language yet, use the first language we find
+                if not primary_language:
+                    primary_language = translation['language']
+                    settings_ws.cell(row=2, column=settings_columns['default_language'], value=primary_language)
+
+                # set language suffix
+                if translation['language'] and translation['language'] != primary_language:
+                    language_suffix = f":{translation['language']}"
+                    label_column = 'label' + language_suffix
+                    hint_column = 'hint' + language_suffix
+                    # also add translation columns as necessary
+                    if label_column not in survey_columns:
+                        _add_header_to_first_empty_cell(survey_ws, label_column)
+                        survey_columns = _get_columns_from_headers(survey_ws)
+                    if translation['options'] and label_column not in choices_columns:
+                        _add_header_to_first_empty_cell(choices_ws, label_column)
+                        choices_columns = _get_columns_from_headers(choices_ws)
+                    if hint_column not in survey_columns:
+                        _add_header_to_first_empty_cell(survey_ws, hint_column)
+                        survey_columns = _get_columns_from_headers(survey_ws)
+                else:
+                    label_column = 'label'
+                    hint_column = 'hint'
+
+                # add the question to the survey sheet
+                survey_ws.cell(row=survey_row_counter, column=survey_columns['type'],
+                               value='text' if not translation['options'] else 'select_one ' + safe_question_id)
+                survey_ws.cell(row=survey_row_counter, column=survey_columns['name'], value=safe_question_id)
+                survey_ws.cell(row=survey_row_counter, column=survey_columns[label_column],
+                               value=translation['question'])
+                survey_ws.cell(row=survey_row_counter, column=survey_columns[hint_column],
+                               value=translation['instructions'])
+
+                # if there are options, we'll need to add them to the choices sheet (all at the end)
+                if translation['options']:
+                    has_choices = True
+
+            # increment survey row when we're done adding all translations
+            survey_row_counter += 1
+
+            # then, finally, add all choice options (with all translations)
+            if has_choices:
+                values_added = []
+                for translation in question_data:
+                    for option in translation['options']:
+                        if option['value'] not in values_added:
+                            # if we haven't added this option value yet, add it for all translations
+                            choices_ws.cell(row=choices_row_counter, column=choices_columns['list_name'],
+                                            value=safe_question_id)
+                            choices_ws.cell(row=choices_row_counter, column=choices_columns['value'],
+                                            value=option['value'])
+                            for inner_translation in question_data:
+                                for inner_option in inner_translation['options']:
+                                    if inner_option['value'] == option['value']:
+                                        if (inner_translation['language'] and inner_translation['language'] !=
+                                                primary_language):
+                                            label_column = 'label' + f":{inner_translation['language']}"
+                                        else:
+                                            label_column = 'label'
+                                        choices_ws.cell(row=choices_row_counter, column=choices_columns[label_column],
+                                                        value=inner_option['label'])
+                            choices_row_counter += 1
+                            values_added.append(option['value'])
+
+        # close the module's group
+        survey_ws.cell(row=survey_row_counter, column=survey_columns['type'], value='end group')
+        survey_ws.cell(row=survey_row_counter, column=survey_columns['name'], value=safe_module_name)
+        survey_row_counter += 1
+
+    # Save the workbook to the specified output file
+    wb.save(output_file)

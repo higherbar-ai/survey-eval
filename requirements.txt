@@ -32,6 +32,7 @@ lxml
 requests~=2.31.0
 tqdm~=4.65.0
 overrides~=7.3.1
+openpyxl~=3.0.9
 # dev environment
 setuptools>=65.5.1
 twine~=4.0
