@@ -21,7 +21,7 @@ import asyncio
 import requests
 from urllib.parse import urlparse
 
-from html_tools import MarkdownifyHTMLProcessor
+from surveyeval.html_tools import MarkdownifyHTMLProcessor
 from langchain_core.pydantic_v1 import BaseModel, Field
 from typing import List, Optional, TypedDict, Tuple
 import uuid
@@ -59,19 +59,29 @@ nlp = spacy.load('en_core_web_sm')
 empty_form_path = pkg_resources.files('surveyeval').joinpath('resources/EmptyForm.xlsx')
 
 # initialize global variables
-langchain_splitter_chunk_size = 6000
+langchain_splitter_chunk_size = 4000
 langchain_splitter_overlap_size = 500
 
 # initialize parsing schema
-module_spec = ('Represents the main section or category within which a question is '
-               'located (e.g., "Health" or "Demographics"). It might include a number or index, but should '
-               'also include a short title. All questions within a module should have the same module.')
-question_id_spec = ('A numeric or alphanumeric identifier or short variable name identifying a '
-                    'specific question, usually located just before or at the beginning of a new question.')
-question_spec = ('A single question or label/description of a single form field, often following '
-                 'a numerical code or identifier like "2.01." or "gender:" Must be text designed to elicit '
-                 'specific information, often in the form of a question (e.g., "How old are you?") or prompt '
-                 '(e.g., "Your age:"). Might be in different languages, but the structure remains the same.')
+module_name_spec = ('The short name or identifier of the survey module, if any, which is the main section, category, '
+                    'or group within which a questionnaire or digital form\'s questions or form fields are located. '
+                    'Examples of module names: "demographics", "health", "hhmembers", "factors", etc.')
+module_title_spec = ('The longer title of the survey module, if any. Examples of module titles: "Household '
+                     'demographics", "People living in the household", "Factors that influence take-up", etc.')
+module_intro_spec = ('The introductory text or instructions that appear at the start of the module, before the '
+                     'module\'s first question begins. For example: "Now we\'re going to ask some questions about '
+                     'the members of your household."')
+questions_spec = ('The list of questions or form fields within the module, including the question ID, question text, '
+                  'instructions, response options, and language.')
+question_id_spec = ('The numeric or alphanumeric identifier or short variable name identifying the '
+                    'question, usually located just before or at the beginning of the question.')
+question_spec = ('The exact text of the question or form field, including any introductory text that provides '
+                 'context or explanation. Often follows a unique question ID of some sort, like "2.01." or "gender:". '
+                 'Should not include response options, which should be included in the "options" field, or extra '
+                 'enumerator or interviewer instructions (including interview probes), which should be included in the '
+                 '"instructions" field. Be careful: the same question might be asked in multiple languages, and each '
+                 'translation should be included as a separate question with the proper language name in the '
+                 '"language" field. Never translate between languages or otherwise alter the question text in any way.')
 instructions_spec = ('Instructions or other guidance about how to ask or answer the '
                      'question, including enumerator or interviewer instructions. If the question includes '
                      'a list of specific response options, do NOT include those in the instructions.')
@@ -83,13 +93,12 @@ options_spec = ("The list of specific response options for multiple-choice quest
                 "at the end of the label. For example: 'Male ### 1 ||| Female ### 2' (codes included) or "
                 "'Male ||| Female' (no codes); 'Yes ### yes ||| No ### no', 'Yes ### 1 ||| No ### 0', 'Yes ### "
                 "y ||| No ### n', or 'YES ||| NO'.")
-language_spec = 'The primary language in which the question is written.'
+language_spec = 'The primary language in which the question text is written.'
 
 
 class Question(BaseModel):
-    """Information about a question."""
+    """Information about a survey question or form field."""
 
-    module: Optional[str] = Field(..., description=module_spec)
     question_id: Optional[str] = Field(..., description=question_id_spec)
     question: Optional[str] = Field(..., description=question_spec)
     instructions: Optional[str] = Field(..., description=instructions_spec)
@@ -97,10 +106,23 @@ class Question(BaseModel):
     language: Optional[str] = Field(..., description=language_spec)
 
 
-class QuestionList(BaseModel):
-    """List of extracted questions from a questionnaire."""
+class Module(BaseModel):
+    """Information about a survey module, which is the main section, category, or group within which a questionnaire
+or digital form's questions or form fields are located. Examples of modules include: "Demographics", "Health",
+"Household members", "Education", etc. All questions are located within modules, even if there is no name, title, or
+introductory text for the module."""
 
-    questions: List[Question]
+    module_name: Optional[str] = Field(..., description=module_name_spec)
+    module_title: Optional[str] = Field(..., description=module_title_spec)
+    module_intro: Optional[str] = Field(..., description=module_intro_spec)
+    questions: Optional[List[Question]] = Field(..., description=questions_spec)
+
+
+class ModuleList(BaseModel):
+    """List of extracted survey modules, including all extracted questions or form fields, from a questionnaire or
+digital form."""
+
+    modules: List[Module]
 
 
 class Example(TypedDict):
@@ -191,29 +213,33 @@ Prefer not to answer
 
 [ZIPCODE] What is your zip code?""",
         [
-            Question(
-                module="2. Demographics",
-                question_id="BIRTHYR",
-                question="What year were you born?",
-                instructions=None,
-                options=None,
-                language="English"
-            ),
-            Question(
-                module="2. Demographics",
-                question_id="GENDER",
-                question="Which gender do you identify with?",
-                instructions=None,
-                options="Female ||| Male ||| Non-binary ||| Prefer not to answer",
-                language="English"
-            ),
-            Question(
-                module="2. Demographics",
-                question_id="ZIPCODE",
-                question="What is your zip code?",
-                instructions=None,
-                options=None,
-                language="English"
+            Module(
+                module_name=None,
+                module_title="2. Demographics",
+                module_intro="We’ll begin with some questions so that we can get to know you and your family.",
+                questions=[
+                    Question(
+                        question_id="BIRTHYR",
+                        question="What year were you born?",
+                        instructions=None,
+                        options=None,
+                        language="English"
+                    ),
+                    Question(
+                        question_id="GENDER",
+                        question="Which gender do you identify with?",
+                        instructions=None,
+                        options="Female ||| Male ||| Non-binary ||| Prefer not to answer",
+                        language="English"
+                    ),
+                    Question(
+                        question_id="ZIPCODE",
+                        question="What is your zip code?",
+                        instructions=None,
+                        options=None,
+                        language="English"
+                    ),
+                ]
             ),
         ]
     ),
@@ -236,14 +262,21 @@ o Graduate degree
 
 o Prefer not to answer""",
         [
-            Question(
-                module=None,
-                question_id="EDUCATION",
-                question="What is the highest level of education you have completed?",
-                instructions=None,
-                options="Less than high school ||| High school / GED ||| Some college ||| 2-year college degree ||| "
-                        "4-year college degree ||| Vocational training ||| Graduate degree ||| Prefer not to answer",
-                language="English"
+            Module(
+                module_name=None,
+                module_title=None,
+                module_intro=None,
+                questions=[
+                    Question(
+                        question_id="EDUCATION",
+                        question="What is the highest level of education you have completed?",
+                        instructions=None,
+                        options="Less than high school ||| High school / GED ||| Some college ||| 2-year college "
+                                "degree ||| 4-year college degree ||| Vocational training ||| Graduate degree ||| "
+                                "Prefer not to answer",
+                        language="English"
+                    ),
+                ]
             ),
         ]
     ),
@@ -258,25 +291,39 @@ o Prefer not to answer""",
 
 [BIG5Q3] Dependable, self-disciplined""",
         [
-            Question(
-                module=None,
-                question_id="BIG5Q1",
-                question="And how much do you disagree or agree with the following statement? I see myself "
-                         "as... Extraverted, enthusiastic",
-                instructions="Please rate how much the pair of traits applies to you, even if one trait applies "
-                             "more strongly than the other.",
-                options="Strongly disagree ### 1 ||| 2 ||| 3 ||| 4 ||| 5 ||| 6 ||| Strongly agree ### 7",
-                language="English"
-            ),
-            Question(
-                module=None,
-                question_id="BIG5Q2",
-                question="And how much do you disagree or agree with the following statement? I see myself "
-                         "as... Critical, quarrelsome",
-                instructions="Please rate how much the pair of traits applies to you, even if one trait applies "
-                             "more strongly than the other.",
-                options="Strongly disagree ### 1 ||| 2 ||| 3 ||| 4 ||| 5 ||| 6 ||| Strongly agree ### 7",
-                language="English"
+            Module(
+                module_name=None,
+                module_title=None,
+                module_intro=None,
+                questions=[
+                    Question(
+                        question_id="BIG5Q1",
+                        question="And how much do you disagree or agree with the following statement? I see myself "
+                                 "as... Extraverted, enthusiastic",
+                        instructions="Please rate how much the pair of traits applies to you, even if one trait "
+                                     "applies more strongly than the other.",
+                        options="Strongly disagree ### 1 ||| 2 ||| 3 ||| 4 ||| 5 ||| 6 ||| Strongly agree ### 7",
+                        language="English"
+                    ),
+                    Question(
+                        question_id="BIG5Q2",
+                        question="And how much do you disagree or agree with the following statement? I see myself "
+                                 "as... Critical, quarrelsome",
+                        instructions="Please rate how much the pair of traits applies to you, even if one trait "
+                                     "applies more strongly than the other.",
+                        options="Strongly disagree ### 1 ||| 2 ||| 3 ||| 4 ||| 5 ||| 6 ||| Strongly agree ### 7",
+                        language="English"
+                    ),
+                    Question(
+                        question_id="BIG5Q3",
+                        question="And how much do you disagree or agree with the following statement? I see myself "
+                                 "as... Dependable, self-disciplined",
+                        instructions="Please rate how much the pair of traits applies to you, even if one trait "
+                                     "applies more strongly than the other.",
+                        options="Strongly disagree ### 1 ||| 2 ||| 3 ||| 4 ||| 5 ||| 6 ||| Strongly agree ### 7",
+                        language="English"
+                    ),
+                ]
             ),
         ]
     ),
@@ -318,34 +365,39 @@ m. Don’t Know
 
 3. Do you contribute the same amount or more to your savings each month?""",
         [
-            Question(
-                module="4. Savings Habits",
-                question_id="1",
-                question="On average, how much money do you spend monthly on essential goods below that "
-                         "contribute to your wellbeing (explain/ add in an example)",
-                instructions=None,
-                options=None,
-                language="English"
-            ),
-            Question(
-                module="4. Savings Habits",
-                question_id="2",
-                question="How do you typically spend your monthly income?",
-                instructions=None,
-                options="Home and Housing ### a ||| Retirement ### b ||| Bills and Utility ### c ||| Medical "
-                        "(Physical and Mental Treatment and Care) ### d ||| Taxes ### e ||| Insurance ### f ||| Credit "
-                        "Card Payments (if applicable) ### g ||| Food ### h ||| Shopping and personal items ### i ||| "
-                        "Other ### j ||| I am not able to save money each month ### k ||| Nothing ### l ||| Don’t "
-                        "Know ### m",
-                language="English"
-            ),
-            Question(
-                module="4. Savings Habits",
-                question_id="3",
-                question="Do you contribute the same amount or more to your savings each month?",
-                instructions=None,
-                options=None,
-                language="English"
+            Module(
+                module_name=None,
+                module_title="4. Savings Habits",
+                module_intro="Next, we will ask questions over your monthly saving habits and the potential methods "
+                             "that are used to save money.",
+                questions=[
+                    Question(
+                        question_id="1",
+                        question="On average, how much money do you spend monthly on essential goods below that "
+                                 "contribute to your wellbeing (explain/ add in an example)",
+                        instructions=None,
+                        options=None,
+                        language="English"
+                    ),
+                    Question(
+                        question_id="2",
+                        question="How do you typically spend your monthly income?",
+                        instructions=None,
+                        options="Home and Housing ### a ||| Retirement ### b ||| Bills and Utility ### c ||| Medical "
+                                "(Physical and Mental Treatment and Care) ### d ||| Taxes ### e ||| Insurance ### f "
+                                "||| Credit Card Payments (if applicable) ### g ||| Food ### h ||| Shopping and "
+                                "personal items ### i ||| Other ### j ||| I am not able to save money each month ### "
+                                "k ||| Nothing ### l ||| Don’t Know ### m",
+                        language="English"
+                    ),
+                    Question(
+                        question_id="3",
+                        question="Do you contribute the same amount or more to your savings each month?",
+                        instructions=None,
+                        options=None,
+                        language="English"
+                    ),
+                ]
             ),
         ]
     ),
@@ -414,45 +466,41 @@ m. Don’t Know
 <td>[End survey]</td>
 </tr>""",
         [
-            Question(
-                module="CONS. Introduction and Consent",
-                question_id=None,
-                question="""Good morning/afternoon/evening. My name is ______________________ from """
-                         """Innovations from Poverty Action, a """
-                         """Mexican research NGO. \n \n We would like to invite you to participate in a survey """
-                         """lasting about 20 minutes about the effects of covid-19 on economic and social """
-                         """conditions in the Mexico City metropolitan area. If you are eligible for the survey """
-                         """we will compensate you [30 pesos] in airtime for completing your survey.""",
-                instructions=None,
-                options=None,
-                language="English"
-            ),
-            Question(
-                module="CONS. Introduction and Consent",
-                question_id="cons1",
-                question="Can I give you more information?",
-                instructions="*If cons1=N\n Thank you for your response. We will end the survey now. "
-                             "[End survey]",
-                options="Y ||| N",
-                language="English"
-            ),
-            Question(
-                module="CONS. Introduction and Consent",
-                question_id="end4",
-                question="What is your first name?",
-                instructions=None,
-                options=None,
-                language="English"
-            ),
-            Question(
-                module="CONS. Introduction and Consent",
-                question_id="dem1",
-                question="How old are you?",
-                instructions="*Enter age*\n ###\n"
-                             "*If DEM1&lt;18*\n Thank you for your response. We will end the survey now. "
-                             "[End survey]",
-                options=None,
-                language="English"
+            Module(
+                module_name="CONS",
+                module_title="Introduction and Consent",
+                module_intro="Good morning/afternoon/evening. My name is ______________________ from "
+                             "Innovations from Poverty Action, a "
+                             "Mexican research NGO. \n \n We would like to invite you to participate in a survey "
+                             "lasting about 20 minutes about the effects of covid-19 on economic and social "
+                             "conditions in the Mexico City metropolitan area. If you are eligible for the survey "
+                             "we will compensate you [30 pesos] in airtime for completing your survey.",
+                questions=[
+                    Question(
+                        question_id="cons1",
+                        question="Can I give you more information?",
+                        instructions="*If cons1=N\n Thank you for your response. We will end the survey now. "
+                                     "[End survey]",
+                        options="Y ||| N",
+                        language="English"
+                    ),
+                    Question(
+                        question_id="end4",
+                        question="What is your first name?",
+                        instructions=None,
+                        options=None,
+                        language="English"
+                    ),
+                    Question(
+                        question_id="dem1",
+                        question="How old are you?",
+                        instructions="*Enter age*\n ###\n"
+                                     "*If DEM1&lt;18*\n Thank you for your response. We will end the survey now. "
+                                     "[End survey]",
+                        options=None,
+                        language="English"
+                    ),
+                ]
             ),
         ]
     ),
@@ -486,30 +534,42 @@ m. Don’t Know
 <td>Y/N/DNK</td>
 </tr>""",
         [
-            Question(
-                module=None,
-                question_id="inc11_mex",
-                question="""If schools and daycares remained closed and workplaces re-opened, would """
-                         """anyone in your household have to stay home and not return to work in order to care for """
-                         """children too young to stay at home without supervision?""",
-                instructions="*If YES to INC12_mex*\n*Read out, select multiple possible*",
-                options="Grandparents ||| Hired babysitter ||| Neighbors ||| Mother who normally st ||| Mother who "
-                        "normally works outside the home ||| Father who normally works outside the home ||| "
-                        "Older sibling ||| DNK",
-                language="English"
+            Module(
+                module_name=None,
+                module_title=None,
+                module_intro=None,
+                questions=[
+                    Question(
+                        question_id="inc11_mex",
+                        question="If schools and daycares remained closed and workplaces re-opened, would "
+                                 "anyone in your household have to stay home and not return to work in order to care "
+                                 "for children too young to stay at home without supervision?",
+                        instructions="*If YES to INC12_mex*\n*Read out, select multiple possible*",
+                        options="Grandparents ||| Hired babysitter ||| Neighbors ||| Mother who normally st ||| Mother "
+                                "who normally works outside the home ||| Father who normally works outside the home "
+                                "||| Older sibling ||| DNK",
+                        language="English"
+                    ),
+                ]
             ),
-            Question(
-                module="NET. Social Safety Net",
-                question_id="net1",
-                question="""Do you usually receive a regular transfer from any cash transfer or other """
-                         """in-kind social support program?\n \n HINT: Social safety net programs """
-                         """include cash transfers and in-kind food transfers (food stamps and vouchers, """
-                         """food rations, and emergency food distribution). Example includes XXX cash """
-                         """transfer programme.""",
-                instructions="*If cons1=N\n Thank you for your response. We will end the survey now. "
-                             "[End survey]",
-                options="Y ||| N ||| DNK",
-                language="English"
+            Module(
+                module_name="NET",
+                module_title="Social Safety Net",
+                module_intro=None,
+                questions=[
+                    Question(
+                        question_id="net1",
+                        question="Do you usually receive a regular transfer from any cash transfer or other "
+                                 "in-kind social support program?\n \n HINT: Social safety net programs "
+                                 "include cash transfers and in-kind food transfers (food stamps and vouchers, "
+                                 "food rations, and emergency food distribution). Example includes XXX cash "
+                                 "transfer programme.",
+                        instructions="*If cons1=N\n Thank you for your response. We will end the survey now. "
+                                     "[End survey]",
+                        options="Y ||| N ||| DNK",
+                        language="English"
+                    ),
+                ]
             ),
         ]
     ),
@@ -540,16 +600,24 @@ m. Don’t Know
         """Doesn’t apply</td>
 </tr>""",
         [
-            Question(
-                module="POL. POLICING",
-                question_id="POL1",
-                question="""Compared to the level of insecurity that existed in your neighborhood before """
-                         """the pandemic began, do you consider that the level of insecurity in your """
-                         """neighborhood decreased, remained more or less the same, or increased?""",
-                instructions=None,
-                options="Decreased ||| it was more or less the same ||| increased ||| Doesn’t answer ### 777 ||| "
-                        "Doesn’t know ### 888 ||| Doesn’t apply ### 999",
-                language="English"
+            Module(
+                module_name="POL",
+                module_title="POLICING",
+                module_intro="Now I am going to ask you some questions about the main problems of insecurity in Mexico "
+                             "City and the performance of the city police since the coronavirus pandemic began around "
+                             "March 20, 2020.",
+                questions=[
+                    Question(
+                        question_id="POL1",
+                        question="Compared to the level of insecurity that existed in your neighborhood before "
+                                 "the pandemic began, do you consider that the level of insecurity in your "
+                                 "neighborhood decreased, remained more or less the same, or increased?",
+                        instructions=None,
+                        options="Decreased ||| it was more or less the same ||| increased ||| Doesn’t answer ### 777 "
+                                "||| Doesn’t know ### 888 ||| Doesn’t apply ### 999",
+                        language="English"
+                    ),
+                ]
             ),
         ]
     ),
@@ -568,14 +636,50 @@ MORE THAN 10 YEARS AGO = 4
 
 DON'T KNOW/DON'T REMEMBER = 8""",
         [
-            Question(
-                module="HISTORY1",
-                question_id="1408",
-                question="Wanneer was die laaste keer dat jy ’n Papsmeer gehad het?",
-                instructions=None,
-                options="WITHIN THE LAST 3 YEARS ### 1 ||| 4-5 YEARS AGO ### 2 ||| 6-10 YEARS AGO ### 3 ||| MORE "
-                        "THAN 10 YEARS AGO ### 4 ||| DON'T KNOW/DON'T REMEMBER ### 8",
-                language="AFRIKAANS"
+            Module(
+                module_name="HISTORY1",
+                module_title=None,
+                module_intro=None,
+                questions=[
+                    Question(
+                        question_id="1408",
+                        question="Wanneer was die laaste keer dat jy ’n Papsmeer gehad het?",
+                        instructions=None,
+                        options="WITHIN THE LAST 3 YEARS ### 1 ||| 4-5 YEARS AGO ### 2 ||| 6-10 YEARS AGO ### 3 ||| "
+                                "MORE THAN 10 YEARS AGO ### 4 ||| DON'T KNOW/DON'T REMEMBER ### 8",
+                        language="AFRIKAANS"
+                    ),
+                ]
+            ),
+        ]
+    ),
+    (
+        """Module: FACTORS | Question: 1401a | Language: English
+
+Many different factors can prevent women from getting medical advice or treatment for themselves. When you are """
+        """sick and want to get medical advice or treatment, is the following a big problem or not a big problem: """
+        """Getting permission to go to the doctor?
+
+BIG PROBLEM = 1
+
+NOT A BIG PROBLEM = 2""",
+        [
+            Module(
+                module_name="FACTORS",
+                module_title=None,
+                module_intro=None,
+                questions=[
+                    Question(
+                        question_id="1401a",
+                        question="Many different factors can prevent women from getting medical advice or treatment "
+                                 "for themselves. When you are sick and want to get medical advice or treatment, is "
+                                 "the following a big problem or not a big problem: Getting permission to go to the "
+                                 "doctor?",
+                        instructions=None,
+                        options="BIG PROBLEM ### 1 ||| NOT A BIG PROBLEM ### 2",
+                        language="English"
+                    ),
+                ]
             ),
         ]
     ),
@@ -1146,7 +1250,7 @@ def generate_extractor_chain(model_input: str, api_base: str, openai_api_key: st
         raise ValueError("Unsupported provider specified. Choose 'openai' or 'azure'.")
 
     runnable = prompt | llm.with_structured_output(
-        schema=QuestionList,
+        schema=ModuleList,
         method="function_calling",
         include_raw=False,
     )
@@ -1255,17 +1359,19 @@ def clean_data(data: dict) -> dict:
     """
 
     cleaned_data = {}
+    # run through all modules
     for key, dt in data.items():
         # assemble module questions, dropping empty questions
-        module = {question: question_data for question, question_data in dt.items() if question and question_data}
+        questions = {question: question_data for question, question_data in dt['questions'].items()
+                     if question and question_data}
 
         # skip empty modules
-        if not module:
+        if not questions:
             parser_logger.log(logging.INFO, f"Skipping empty module: {key}")
         else:
             parser_logger.log(logging.INFO, f"* Module: {key}")
             # for each question, look for questions with the same language
-            for question, question_data in module.items():
+            for question, question_data in questions.items():
                 if question_data:
                     to_remove = set()
                     for i in range(len(question_data)):
@@ -1276,18 +1382,30 @@ def clean_data(data: dict) -> dict:
                                 length_j = total_string_length(question_data[j])
                                 if length_i > length_j:
                                     to_remove.add(j)
+                                    parser_logger.log(logging.INFO, f"  * Dropping duplicate question with "
+                                                                    f"shorter content: "
+                                                                    f"{question} - {question_data[j]['language']} - "
+                                                                    f"{question_data[j]['question']} "
+                                                                    f"({length_j} <= {length_i})")
                                 else:
                                     to_remove.add(i)
-                                parser_logger.log(logging.INFO, f"  * Dropping duplicate question with shorter "
-                                                                f"content: "
-                                                                f"{question} - {question_data[i]['question']} "
-                                                                f"({length_i} vs {length_j})")
+                                    parser_logger.log(logging.INFO, f"  * Dropping duplicate question with "
+                                                                    f"shorter content: "
+                                                                    f"{question} - {question_data[i]['language']} - "
+                                                                    f"{question_data[i]['question']} "
+                                                                    f"({length_i} <= {length_j})")
 
                     # remove duplicates after identifying them
                     for index in sorted(to_remove, reverse=True):
                         question_data.pop(index)
 
-            cleaned_data[key] = module
+            # add module to cleaned data
+            cleaned_data[key] = {
+                "module_name": dt['module_name'],
+                "module_title": dt['module_title'],
+                "module_intro": dt['module_intro'],
+                "questions": questions
+            }
 
     return cleaned_data
 
@@ -1360,59 +1478,81 @@ async def extract_data(chain: Runnable, url: str, replacement_examples: List[Tup
             parser_logger.log(logging.INFO, f"Cost: ${cb.total_cost}")
 
     # organize questions by module and question ID
-    grouped_content = {}
+    grouped_output = {}
     question_module = {}
-    current_module = '(none)'
+    unknown_module_count = 0
     unknown_id_count = 0
-    for res in results:
-        for question in res.questions:
-            # get module name, defaulting to the current one if none specified
-            module = question.module if question.module else current_module
+    for module_list in results:
+        for module in module_list.modules:
+            # construct module name from whatever details we have, defaulting to auto-naming as necessary
+            if module.module_name == module.module_title:
+                module_key = module.module_name
+            elif module.module_name and module.module_title:
+                module_key = f"{module.module_name} - {module.module_title}"
+            elif module.module_name:
+                module_key = module.module_name
+            elif module.module_title:
+                module_key = module.module_title
+            else:
+                unknown_module_count += 1
+                module_key = f"MODULE_{unknown_module_count}"
 
-            # process question, if any
-            if question.question and question.question.strip():
-                # get question ID, if available
-                question_id = question.question_id.strip() if question.question_id else ''
-                if not question_id:
-                    # if no question ID is provided, generate a unique ID
-                    unknown_id_count += 1
-                    question_id = f"unknown_id_{unknown_id_count}"
+            # run through all questions in module
+            for question in module.questions:
+                # process question, if any
+                if question.question and question.question.strip():
+                    # get question ID, if available
+                    question_id = question.question_id.strip() if question.question_id else ''
+                    if not question_id:
+                        # if no question ID is provided, generate a unique ID
+                        unknown_id_count += 1
+                        question_id = f"question_{unknown_id_count}"
 
-                # always keep questions with the same ID together in the same module
-                if question_id in question_module:
-                    module = question_module[question_id]
-                else:
-                    question_module[question_id] = module
+                    if question_id in question_module:
+                        # if we've seen the question ID before, add this version to the same module as before
+                        question_list = grouped_output[question_module[question_id]].setdefault('questions', {})
+                    else:
+                        # otherwise, add it to the current module, adding the module to the output as needed
+                        if module_key not in grouped_output:
+                            # add module to output, ignoring module title if same as the module name
+                            grouped_output[module_key] = {
+                                "module_name": module.module_name if module.module_name else "",
+                                "module_title": module.module_title if module.module_title
+                                                                       and module.module_title != module.module_name
+                                                                    else "",
+                                "module_intro": module.module_intro if module.module_intro else "",
+                                "questions": {}
+                            }
+                        question_list = grouped_output[module_key].setdefault('questions', {})
+                        question_module[question_id] = module_key
 
-                # parse and organize options, if any
-                options = []
-                if question.options:
-                    option_strs = [option.strip() for option in question.options.split('|||')]
-                    for option_str in option_strs:
-                        if '###' in option_str:
-                            option_parts = option_str.split('###')
-                            if len(option_parts) == 2:
-                                option_parts = [part.strip() for part in option_parts]
-                                options.append({'label': option_parts[0], 'value': option_parts[1]})
+                    # parse and organize options, if any
+                    options = []
+                    if question.options:
+                        option_strs = [option.strip() for option in question.options.split('|||')]
+                        for option_str in option_strs:
+                            if '###' in option_str:
+                                option_parts = option_str.split('###')
+                                if len(option_parts) == 2:
+                                    option_parts = [part.strip() for part in option_parts]
+                                    options.append({'label': option_parts[0], 'value': option_parts[1]})
+                                else:
+                                    options.append({'label': option_str, 'value': option_str})
                             else:
                                 options.append({'label': option_str, 'value': option_str})
-                        else:
-                            options.append({'label': option_str, 'value': option_str})
 
-                # add question, grouped by module and question ID
-                grouped_content.setdefault(module, {}).setdefault(question_id, [])
-                grouped_content[module][question_id].append({
-                    'question': question.question,
-                    'language': question.language if question.language else '',
-                    'options': options,
-                    'instructions': question.instructions if question.instructions else '',
-                })
-
-            # remember current module for next question
-            current_module = module
+                    # add question, grouped by module and question ID
+                    if question_id not in question_list:
+                        question_list[question_id] = []
+                    question_list[question_id].append({
+                        'question': question.question,
+                        'language': question.language if question.language else '',
+                        'options': options,
+                        'instructions': question.instructions if question.instructions else '',
+                    })
 
     # return cleaned-up version of the data
-    return clean_data(grouped_content)
+    return clean_data(grouped_output)
 
 
 async def extract_data_from_directory(path_to_ingest: str, chain: LLMChain) -> list:
