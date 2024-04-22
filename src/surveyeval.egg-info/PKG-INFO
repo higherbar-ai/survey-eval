@@ -1,6 +1,6 @@
 Metadata-Version: 2.1
 Name: surveyeval
-Version: 0.1.8
+Version: 0.1.9
 Summary: A toolkit for survey evaluation
 Home-page: https://github.com/higherbar-ai/survey-eval
 Author: Christopher Robert
@@ -87,21 +87,22 @@ file formats:
 2. ``.pdf``: PDF files are read in the ``read_pdf_combined()`` function, which tries to read the text and tables in a PDF
    (separately), combine them together, and then fall back to using an OCR reader if that process didn't find much 
    text. There is a ton of room for improvement here.
-3. ``.xlsx``: Excel files are read in the ``parse_xlsx()`` function, in two stages. First, it assumes that the file is in
-   `XLSForm format <https://xlsform.org/en/>`_ and uses `the pyxform library <https://github.com/XLSForm/pyxform>`_ to
-   read the survey. If it encounters an error, it falls back to using LangChain's ``UnstructuredExcelLoader()`` to load
-   the workbook in HTML format, then uses that HTML as the raw text for parsing. There is much that can be improved,
-   particularly in how XLSForms are handled (e.g., the current approach doesn't handle translations well).
-4. ``.csv``: CSV files are read in the ``parse_csv()`` function, also using two stages. First, it assumes that the file
-   is a REDCap data dictionary and parses the columns accordingly. If it encounters an error, it falls back to just
-   reading the file as raw text. There is much that can be improved here, particularly in how REDCap data 
-   dictionaries are handled (e.g., the current approach doesn't handle modules or translations).
+3. ``.xlsx``: Excel files are read in the ``parse_xlsx()`` function, in two ways. If the file looks like it's in
+   `XLSForm format <https://xlsform.org/en/>`_, it parses it accordingly; this parsing should be completely lossless
+   and requires no additional parsing at later stages. If the file does not appear to be an XLSForm, the reader falls
+   back to using LangChain's ``UnstructuredExcelLoader()`` to load the workbook in HTML format, then uses that HTML as
+   the raw text for parsing. XLSForm handling should be robust, but there is much that can be improved in how other
+   formats are handled.
+4. ``.csv``: CSV files are read in the ``parse_csv()`` function, also in two ways. If the file looks like a REDCap
+   data dictionary, it will parse the columns accordingly (requiring little to no later processing). Otherwise, it
+   falls back to just reading the file as raw text. There is much that can be improved here, particularly in how
+   REDCap data dictionaries are handled (e.g., the current approach doesn't handle modules or translations).
 5. ``.html``: HTML files are read in the ``read_html()`` function, then converted into markdown for parsing.
 
-All of the raw content is split into 6,000-character chunks with 500 characters of overlap, before being passed on
-for parsing. This is necessary to both (a) avoid overflowing LLM context windows, and (b) allow the LLM to focus on
-a tractable amount of text in any given request (with the latter becoming more important as the constraints on context
-windows are relaxed).
+All of the raw content is split into 3,000-character chunks with 500 characters of overlap, before being passed on
+for parsing. This is necessary to (a) avoid overflowing LLM context windows, (b) avoid overflowing output token
+limits, and (c) allow the LLM to focus on a tractable amount of text in any given request (with the latter becoming
+more important as the constraints on context windows are relaxed).
 
 Overall, the code for reading files performs pretty poorly for all but the simplest formats. There's much work to do
 here to improve quality.
@@ -130,7 +131,7 @@ There's much that can be improved here. For example:
 
 * We should track and report costs for the evaluation stage of the process.
 * We should generally overhaul the ``survey_parser`` module to better ingest different file formats into
-  raw text that works consistently well for parsing. Better PDF, XLSForm, and REDCap support, in particular, would be
+  raw text that works consistently well for parsing. Better PDF and REDCap support, in particular, would be
   nice.
 * We should add an LLM cache that avoids calling out to the LLM for responses that it already has from prior requests.
   After all, it's common to evaluate the same instrument multiple times, and it's incredibly wasteful to 

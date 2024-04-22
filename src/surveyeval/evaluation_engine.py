@@ -583,12 +583,14 @@ class EvaluationLens:
             followups=self.followups, chat_history=chat_history)
         return self.evaluation_result
 
-    def format_result(self, result: dict | None = None) -> str:
+    def format_result(self, result: dict | None = None, minimum_importance: int = 0) -> str:
         """
         Format the evaluation result as a human-readable string.
 
         :param result: Evaluation result to format (or None to use the evaluation_result attribute).
         :type result: dict | None
+        :param minimum_importance: Minimum importance score for filtering results (defaults to 0, which doesn't filter).
+        :type minimum_importance: int
         :return: Formatted evaluation result.
         :rtype: str
         """
@@ -598,6 +600,10 @@ class EvaluationLens:
             result_to_format = result
         else:
             result_to_format = self.evaluation_result[0]
+
+        # raise error if asked to filter for importance
+        if minimum_importance > 0:
+            raise NotImplementedError("No base class implementation for filtering by importance.")
 
         # return empty string if no result is available to format
         if result_to_format is None:
@@ -620,6 +626,19 @@ class EvaluationLens:
 
         # return the formatted result with each key-value pair on its own line
         return '\n'.join(formatted_results)
+
+    def standardize_result(self, result: dict | None = None) -> list[dict]:
+        """
+        Reorganize the evaluation result into a list of recommendations in a standardized format.
+
+        :param result: Evaluation result to format (or None to use the evaluation_result attribute).
+        :type result: dict | None
+        :return: List of recommendations, each of which is a dict with the following keys: importance (int 1-5),
+            replacement_original (str), replacement_suggested (str), explanation (str).
+        :rtype: list[dict]
+        """
+
+        raise NotImplementedError("No base class implementation for standardize_result().")
 
     @staticmethod
     def condition_is_value(response_dict: dict, condition_key: str, condition_value: str) -> bool:

@@ -1794,13 +1794,13 @@ def output_parsed_data_to_xlsform(data: dict, form_id: str, form_title: str, out
                     # also add translation columns as necessary
                     if label_column not in survey_columns:
                         _add_header_to_first_empty_cell(survey_ws, label_column)
-                        survey_columns = _get_columns_from_headers(survey_ws)
+                        survey_columns = _get_columns_from_headers(survey_ws, 1)
                     if translation['options'] and label_column not in choices_columns:
                         _add_header_to_first_empty_cell(choices_ws, label_column)
-                        choices_columns = _get_columns_from_headers(choices_ws)
+                        choices_columns = _get_columns_from_headers(choices_ws, 1)
                     if hint_column not in survey_columns:
                         _add_header_to_first_empty_cell(survey_ws, hint_column)
-                        survey_columns = _get_columns_from_headers(survey_ws)
+                        survey_columns = _get_columns_from_headers(survey_ws, 1)
                 else:
                     label_column = 'label'
                     hint_column = 'hint'
