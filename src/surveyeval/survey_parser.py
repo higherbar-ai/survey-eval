@@ -14,21 +14,27 @@
 
 """Utility functions for reading and parsing survey files."""
 
-from typing import Optional
 import os
 import tempfile
 import logging
-import json
 import asyncio
 import requests
 from urllib.parse import urlparse
-from pydantic import BaseModel, Field
-from kor.extraction import create_extraction_chain
-from kor import from_pydantic
-from kor.nodes import Object
-from kor.validators import Validator
+
+from surveyeval.html_tools import MarkdownifyHTMLProcessor
+from langchain_core.pydantic_v1 import BaseModel, Field
+from typing import List, Optional, TypedDict, Tuple
+import uuid
+from langchain_core.messages import (
+    AIMessage,
+    BaseMessage,
+    HumanMessage,
+    ToolMessage,
+)
+from langchain_core.runnables import Runnable
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+
 from langchain_openai import ChatOpenAI, AzureChatOpenAI
-from langchain_core.prompts import PromptTemplate
 from langchain.chains import LLMChain
 from langchain.callbacks import get_openai_callback
 from typing import Callable
@@ -36,24 +42,674 @@ import nltk
 import spacy
 import csv
 import re
-import xml.etree.ElementTree as ElementTree
 import pytesseract
 from pypdf import PdfReader
 from tabula.io import read_pdf
 from pdf2image import convert_from_path
-from kor.documents.html import MarkdownifyHTMLProcessor
 from langchain.schema import Document as SchemaDocument
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.document_loaders import UnstructuredFileLoader, UnstructuredExcelLoader
+import importlib.resources as pkg_resources
+from openpyxl import load_workbook
 
 # initialize global resources
 parser_logger = logging.getLogger(__name__)
 nltk.download('punkt')
 nlp = spacy.load('en_core_web_sm')
+empty_form_path = str(pkg_resources.files('surveyeval').joinpath('resources/EmptyForm.xlsx'))
 
 # initialize global variables
-langchain_splitter_chunk_size = 6000
+langchain_splitter_chunk_size = 3000
 langchain_splitter_overlap_size = 500
+
+# initialize parsing schema
+module_name_spec = ('The short name or identifier of the survey module, if any, which is the main section, category, '
+                    'or group within which a questionnaire or digital form\'s questions or form fields are located. '
+                    'Examples of module names: "demographics", "health", "hhmembers", "factors", etc.')
+module_title_spec = ('The longer title of the survey module, if any. Examples of module titles: "Household '
+                     'demographics", "People living in the household", "Factors that influence take-up", etc.')
+module_intro_spec = ('The introductory text or instructions that appear at the start of the module, before the '
+                     'module\'s first question begins. For example: "Now we\'re going to ask some questions about '
+                     'the members of your household."')
+questions_spec = ('The list of questions or form fields within the module, including the question ID, question text, '
+                  'instructions, response options, and language.')
+question_id_spec = ('The numeric or alphanumeric identifier or short variable name identifying the '
+                    'question, usually located just before or at the beginning of the question.')
+question_spec = ('The exact text of the question or form field, including any introductory text that provides '
+                 'context or explanation. Often follows a unique question ID of some sort, like "2.01." or "gender:". '
+                 'Should not include response options, which should be included in the "options" field, or extra '
+                 'enumerator or interviewer instructions (including interview probes), which should be included in the '
+                 '"instructions" field. Be careful: the same question might be asked in multiple languages, and each '
+                 'translation should be included as a separate question with the proper language name in the '
+                 '"language" field. Never translate between languages or otherwise alter the question text in any way.')
+instructions_spec = ('Instructions or other guidance about how to ask or answer the '
+                     'question, including enumerator or interviewer instructions. If the question includes '
+                     'a list of specific response options, do NOT include those in the instructions. However, if '
+                     'there is guidance as to how to fill out an open-ended numeric or text response, or guidance '
+                     'about how to choose among the options, include that guidance here.')
+options_spec = ("The list of specific response options for multiple-choice questions, "
+                "including both the label and the internal value (if specified) for each option. For example, "
+                "a 'Male' label might be coupled with an internal value of '1', 'M', or even 'male'. "
+                "Separate response options with a space, three pipe symbols ('|||'), and another space, and, "
+                "if there is an internal value, add a space, three # symbols ('###'), and the internal value "
+                "at the end of the label. For example: 'Male ### 1 ||| Female ### 2' (codes included) or "
+                "'Male ||| Female' (no codes); 'Yes ### yes ||| No ### no', 'Yes ### 1 ||| No ### 0', 'Yes ### "
+                "y ||| No ### n', or 'YES ||| NO'. Do NOT include fill-in-the-blank content here, only "
+                "multiple-choice options. If the question is open-ended, leave this field blank. ")
+language_spec = 'The primary language in which the question text is written.'
+
+
+class Question(BaseModel):
+    """Information about a survey question or form field."""
+
+    question_id: Optional[str] = Field(..., description=question_id_spec)
+    question: Optional[str] = Field(..., description=question_spec)
+    instructions: Optional[str] = Field(..., description=instructions_spec)
+    options: Optional[str] = Field(..., description=options_spec)
+    language: Optional[str] = Field(..., description=language_spec)
+
+
+class Module(BaseModel):
+    """Information about a survey module, which is the main section, category, or group within which a questionnaire
+or digital form's questions or form fields are located. Examples of modules include: "Demographics", "Health",
+"Household members", "Education", etc. All questions are located within modules, even if there is no name, title, or
+introductory text for the module."""
+
+    module_name: Optional[str] = Field(..., description=module_name_spec)
+    module_title: Optional[str] = Field(..., description=module_title_spec)
+    module_intro: Optional[str] = Field(..., description=module_intro_spec)
+    questions: Optional[List[Question]] = Field(..., description=questions_spec)
+
+
+class ModuleList(BaseModel):
+    """List of extracted survey modules, including all extracted questions or form fields, from a questionnaire or
+digital form."""
+
+    modules: List[Module]
+
+
+class Example(TypedDict):
+    """
+    A representation of an example consisting of text input and expected tool calls.
+
+    For extraction, the tool calls are represented as instances of pydantic model.
+    """
+
+    input: str                          # the example text
+    tool_calls: List[BaseModel]         # instances of pydantic model that should be extracted
+
+
+prompt = ChatPromptTemplate.from_messages(
+    [
+        (
+            "system",
+            "You are an expert questionnaire extraction algorithm. "
+            "Only extract relevant information from the text. "
+            "If you do not know the value of an attribute asked "
+            "to extract, return null for the attribute's value.",
+        ),
+        MessagesPlaceholder("examples"),
+        ("human", "{text}"),
+    ]
+)
+
+
+def tool_example_to_messages(example: Example) -> List[BaseMessage]:
+    """
+    Convert an example into a list of messages that can be fed into an LLM.
+
+    This code is an adapter that converts our example to a list of messages
+    that can be fed into a chat model.
+
+    The list of messages per example corresponds to:
+
+    1) HumanMessage: contains the content from which content should be extracted.
+    2) AIMessage: contains the extracted information from the model
+    3) ToolMessage: contains confirmation to the model that the model requested a tool correctly.
+
+    The ToolMessage is required because some of the chat models are hyper-optimized for agents
+    rather than for an extraction use case.
+    """
+    messages: List[BaseMessage] = [HumanMessage(content=example["input"])]
+    openai_tool_calls = []
+    for tool_call in example["tool_calls"]:
+        openai_tool_calls.append(
+            {
+                "id": str(uuid.uuid4()),
+                "type": "function",
+                "function": {
+                    # The name of the function right now corresponds
+                    # to the name of the pydantic model
+                    # This is implicit in the API right now,
+                    # and will be improved over time.
+                    "name": tool_call.__class__.__name__,
+                    "arguments": tool_call.json(),
+                },
+            }
+        )
+    messages.append(
+        AIMessage(content="", additional_kwargs={"tool_calls": openai_tool_calls})
+    )
+    tool_outputs = ["You have correctly called this tool."] * len(openai_tool_calls)
+    for output, tool_call in zip(tool_outputs, openai_tool_calls):
+        messages.append(ToolMessage(content=output, tool_call_id=tool_call["id"]))
+    return messages
+
+
+examples = [
+    (
+        """2. Demographics
+
+We’ll begin with some questions so that we can get to know you and your family.
+
+[BIRTHYR] What year were you born?
+
+[GENDER] Which gender do you identify with?
+
+Female
+
+Male
+
+Non-binary
+
+Prefer not to answer
+
+[ZIPCODE] What is your zip code?""",
+        [
+            Module(
+                module_name=None,
+                module_title="2. Demographics",
+                module_intro="We’ll begin with some questions so that we can get to know you and your family.",
+                questions=[
+                    Question(
+                        question_id="BIRTHYR",
+                        question="What year were you born?",
+                        instructions=None,
+                        options=None,
+                        language="English"
+                    ),
+                    Question(
+                        question_id="GENDER",
+                        question="Which gender do you identify with?",
+                        instructions=None,
+                        options="Female ||| Male ||| Non-binary ||| Prefer not to answer",
+                        language="English"
+                    ),
+                    Question(
+                        question_id="ZIPCODE",
+                        question="What is your zip code?",
+                        instructions=None,
+                        options=None,
+                        language="English"
+                    ),
+                ]
+            ),
+        ]
+    ),
+    (
+        """[EDUCATION] What is the highest level of education you have completed?
+
+o Less than high school
+
+o High school / GED
+
+o Some college
+
+o 2-year college degree
+
+o 4-year college degree
+
+o Vocational training
+
+o Graduate degree
+
+o Prefer not to answer""",
+        [
+            Module(
+                module_name=None,
+                module_title=None,
+                module_intro=None,
+                questions=[
+                    Question(
+                        question_id="EDUCATION",
+                        question="What is the highest level of education you have completed?",
+                        instructions=None,
+                        options="Less than high school ||| High school / GED ||| Some college ||| 2-year college "
+                                "degree ||| 4-year college degree ||| Vocational training ||| Graduate degree ||| "
+                                "Prefer not to answer",
+                        language="English"
+                    ),
+                ]
+            ),
+        ]
+    ),
+    (
+        """And how much do you disagree or agree with the following statements? For each statement, please """
+        """rate how much the pair of traits applies to you, even if one trait applies more strongly than the """
+        """other. I see myself as... [For each: 1=Strongly disagree, 7=Strongly agree]
+
+[BIG5Q1] Extraverted, enthusiastic
+
+[BIG5Q2] Critical, quarrelsome
+
+[BIG5Q3] Dependable, self-disciplined""",
+        [
+            Module(
+                module_name=None,
+                module_title=None,
+                module_intro=None,
+                questions=[
+                    Question(
+                        question_id="BIG5Q1",
+                        question="And how much do you disagree or agree with the following statement? I see myself "
+                                 "as... Extraverted, enthusiastic",
+                        instructions="Please rate how much the pair of traits applies to you, even if one trait "
+                                     "applies more strongly than the other.",
+                        options="Strongly disagree ### 1 ||| 2 ||| 3 ||| 4 ||| 5 ||| 6 ||| Strongly agree ### 7",
+                        language="English"
+                    ),
+                    Question(
+                        question_id="BIG5Q2",
+                        question="And how much do you disagree or agree with the following statement? I see myself "
+                                 "as... Critical, quarrelsome",
+                        instructions="Please rate how much the pair of traits applies to you, even if one trait "
+                                     "applies more strongly than the other.",
+                        options="Strongly disagree ### 1 ||| 2 ||| 3 ||| 4 ||| 5 ||| 6 ||| Strongly agree ### 7",
+                        language="English"
+                    ),
+                    Question(
+                        question_id="BIG5Q3",
+                        question="And how much do you disagree or agree with the following statement? I see myself "
+                                 "as... Dependable, self-disciplined",
+                        instructions="Please rate how much the pair of traits applies to you, even if one trait "
+                                     "applies more strongly than the other.",
+                        options="Strongly disagree ### 1 ||| 2 ||| 3 ||| 4 ||| 5 ||| 6 ||| Strongly agree ### 7",
+                        language="English"
+                    ),
+                ]
+            ),
+        ]
+    ),
+    (
+        """4. Savings Habits
+
+Next, we will ask questions over your monthly saving habits and the potential methods that are used to save money.
+
+1. On average, how much money do you spend monthly on essential goods below that contribute to your wellbeing """
+        """(explain/ add in an example)
+
+2. How do you typically spend your monthly income? (choose all that may apply)
+
+a. Home and Housing
+
+b. Retirement
+
+c. Bills and Utility
+
+d. Medical (Physical and Mental Treatment and Care)
+
+e. Taxes
+
+f. Insurance
+
+g. Credit Card Payments (if applicable)
+
+h. Food
+
+i. Shopping and personal items
+
+j. Other
+
+k. I am not able to save money each month
+
+l. Nothing
+
+m. Don’t Know
+
+3. Do you contribute the same amount or more to your savings each month?""",
+        [
+            Module(
+                module_name=None,
+                module_title="4. Savings Habits",
+                module_intro="Next, we will ask questions over your monthly saving habits and the potential methods "
+                             "that are used to save money.",
+                questions=[
+                    Question(
+                        question_id="1",
+                        question="On average, how much money do you spend monthly on essential goods below that "
+                                 "contribute to your wellbeing (explain/ add in an example)",
+                        instructions=None,
+                        options=None,
+                        language="English"
+                    ),
+                    Question(
+                        question_id="2",
+                        question="How do you typically spend your monthly income?",
+                        instructions=None,
+                        options="Home and Housing ### a ||| Retirement ### b ||| Bills and Utility ### c ||| Medical "
+                                "(Physical and Mental Treatment and Care) ### d ||| Taxes ### e ||| Insurance ### f "
+                                "||| Credit Card Payments (if applicable) ### g ||| Food ### h ||| Shopping and "
+                                "personal items ### i ||| Other ### j ||| I am not able to save money each month ### "
+                                "k ||| Nothing ### l ||| Don’t Know ### m",
+                        language="English"
+                    ),
+                    Question(
+                        question_id="3",
+                        question="Do you contribute the same amount or more to your savings each month?",
+                        instructions=None,
+                        options=None,
+                        language="English"
+                    ),
+                ]
+            ),
+        ]
+    ),
+    (
+        """<h1>Round 1, June 2020 Eng</h1>
+<table border="1" class="dataframe">
+<tbody>
+<tr>
+<td>Module</td>
+<td>Section</td>
+<td>Variable</td>
+<td>Question</td>
+<td>Response set</td>
+</tr>
+<tr>
+<td></td>
+<td>CONS. Introduction and Consent</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>core</td>
+<td>CONS</td>
+<td></td>
+<td>Good morning/afternoon/evening. My name is ______________________ from Innovations from Poverty Action, a """
+        """Mexican research NGO. \n \n We would like to invite you to participate in a survey lasting about """
+        """20 minutes about the effects of covid-19 on economic and social conditions in the Mexico City """
+        """metropolitan area. If you are eligible for the survey we will compensate you [30 pesos] in """
+        """airtime for completing your survey.</td>
+<td></td>
+</tr>
+<tr>
+<td></td>
+<td>CONS</td>
+<td>cons1</td>
+<td>Can I give you more information?</td>
+<td>Y/N</td>
+</tr>
+<tr>
+<td></td>
+<td>CONS</td>
+<td></td>
+<td>*If cons1=N\n Thank you for your response. We will end the survey now.</td>
+<td>[End survey]</td>
+</tr>
+<tr>
+<td>core</td>
+<td>END</td>
+<td>end4</td>
+<td>What is your first name?</td>
+<td></td>
+</tr>
+<tr>
+<td>core</td>
+<td>DEM</td>
+<td>dem1</td>
+<td>How old are you?</td>
+<td>*Enter age*\n ###</td>
+</tr>
+<tr>
+<td>core</td>
+<td>CONS</td>
+<td></td>
+<td>*If DEM1&lt;18*\n Thank you for your response. We will end the survey now.</td>
+<td>[End survey]</td>
+</tr>""",
+        [
+            Module(
+                module_name="CONS",
+                module_title="Introduction and Consent",
+                module_intro="Good morning/afternoon/evening. My name is ______________________ from "
+                             "Innovations from Poverty Action, a "
+                             "Mexican research NGO. \n \n We would like to invite you to participate in a survey "
+                             "lasting about 20 minutes about the effects of covid-19 on economic and social "
+                             "conditions in the Mexico City metropolitan area. If you are eligible for the survey "
+                             "we will compensate you [30 pesos] in airtime for completing your survey.",
+                questions=[
+                    Question(
+                        question_id="cons1",
+                        question="Can I give you more information?",
+                        instructions="*If cons1=N\n Thank you for your response. We will end the survey now. "
+                                     "[End survey]",
+                        options="Y ||| N",
+                        language="English"
+                    ),
+                    Question(
+                        question_id="end4",
+                        question="What is your first name?",
+                        instructions=None,
+                        options=None,
+                        language="English"
+                    ),
+                    Question(
+                        question_id="dem1",
+                        question="How old are you?",
+                        instructions="*Enter age*\n ###\n"
+                                     "*If DEM1&lt;18*\n Thank you for your response. We will end the survey now. "
+                                     "[End survey]",
+                        options=None,
+                        language="English"
+                    ),
+                ]
+            ),
+        ]
+    ),
+    (
+        """<tr>
+<td>MEXICO</td>
+<td>INC</td>
+<td>inc11_mex</td>
+<td>*If YES to INC12_mex*\n If schools and daycares remained closed and workplaces re-opened, would anyone in your """
+        """household have to stay home and not return to work in order to care for children too young to """
+        """stay at home without supervision?</td>
+<td>*Read out, select multiple possible*\n Grandparents\n Hired babysitter\n Neighbors\n Mother who normally st\n """
+        """Mother who normally works outside the home\n Father who normally works outside the home\n Older """
+        """sibling\n DNK</td>
+</tr>
+<tr>
+<td></td>
+<td>NET. Social Safety Net</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>core</td>
+<td>NET</td>
+<td>net1</td>
+<td>Do you usually receive a regular transfer from any cash transfer or other in-kind social support program?\n """
+        """\n HINT: Social safety net programs include cash transfers and in-kind food transfers (food """
+        """stamps and vouchers, food rations, and emergency food distribution). Example includes XXX cash """
+        """transfer programme.</td>
+<td>Y/N/DNK</td>
+</tr>""",
+        [
+            Module(
+                module_name=None,
+                module_title=None,
+                module_intro=None,
+                questions=[
+                    Question(
+                        question_id="inc11_mex",
+                        question="If schools and daycares remained closed and workplaces re-opened, would "
+                                 "anyone in your household have to stay home and not return to work in order to care "
+                                 "for children too young to stay at home without supervision?",
+                        instructions="*If YES to INC12_mex*\n*Read out, select multiple possible*",
+                        options="Grandparents ||| Hired babysitter ||| Neighbors ||| Mother who normally st ||| Mother "
+                                "who normally works outside the home ||| Father who normally works outside the home "
+                                "||| Older sibling ||| DNK",
+                        language="English"
+                    ),
+                ]
+            ),
+            Module(
+                module_name="NET",
+                module_title="Social Safety Net",
+                module_intro=None,
+                questions=[
+                    Question(
+                        question_id="net1",
+                        question="Do you usually receive a regular transfer from any cash transfer or other "
+                                 "in-kind social support program?\n \n HINT: Social safety net programs "
+                                 "include cash transfers and in-kind food transfers (food stamps and vouchers, "
+                                 "food rations, and emergency food distribution). Example includes XXX cash "
+                                 "transfer programme.",
+                        instructions="*If cons1=N\n Thank you for your response. We will end the survey now. "
+                                     "[End survey]",
+                        options="Y ||| N ||| DNK",
+                        language="English"
+                    ),
+                ]
+            ),
+        ]
+    ),
+    (
+        """<tr>
+<td></td>
+<td>POL. POLICING</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>MEXICO</td>
+<td>POL</td>
+<td></td>
+<td>Now I am going to ask you some questions about the main problems of insecurity in Mexico City and the """
+        """performance of the city police since the coronavirus pandemic began around March 20, 2020.</td>
+<td></td>
+</tr>
+<tr>
+<td>MEXICO</td>
+<td>POL</td>
+<td>POL1</td>
+<td>Compared to the level of insecurity that existed in your neighborhood before the pandemic began, do you """
+        """consider that the level of insecurity in your neighborhood decreased, remained more or less the """
+        """same, or increased?</td>
+<td>Decreased\n it was more or less the same\n increased\n (777) Doesn’t answer\n (888) Doesn’t know\n (999) """
+        """Doesn’t apply</td>
+</tr>""",
+        [
+            Module(
+                module_name="POL",
+                module_title="POLICING",
+                module_intro="Now I am going to ask you some questions about the main problems of insecurity in Mexico "
+                             "City and the performance of the city police since the coronavirus pandemic began around "
+                             "March 20, 2020.",
+                questions=[
+                    Question(
+                        question_id="POL1",
+                        question="Compared to the level of insecurity that existed in your neighborhood before "
+                                 "the pandemic began, do you consider that the level of insecurity in your "
+                                 "neighborhood decreased, remained more or less the same, or increased?",
+                        instructions=None,
+                        options="Decreased ||| it was more or less the same ||| increased ||| Doesn’t answer ### 777 "
+                                "||| Doesn’t know ### 888 ||| Doesn’t apply ### 999",
+                        language="English"
+                    ),
+                ]
+            ),
+        ]
+    ),
+    (
+        """Module: HISTORY1 | Question: 1408 | Language: AFRIKAANS
+
+Wanneer was die laaste keer dat jy ’n Papsmeer gehad het?
+
+WITHIN THE LAST 3 YEARS = 1
+
+4-5 YEARS AGO = 2
+
+6-10 YEARS AGO = 3
+
+MORE THAN 10 YEARS AGO = 4
+
+DON'T KNOW/DON'T REMEMBER = 8""",
+        [
+            Module(
+                module_name="HISTORY1",
+                module_title=None,
+                module_intro=None,
+                questions=[
+                    Question(
+                        question_id="1408",
+                        question="Wanneer was die laaste keer dat jy ’n Papsmeer gehad het?",
+                        instructions=None,
+                        options="WITHIN THE LAST 3 YEARS ### 1 ||| 4-5 YEARS AGO ### 2 ||| 6-10 YEARS AGO ### 3 ||| "
+                                "MORE THAN 10 YEARS AGO ### 4 ||| DON'T KNOW/DON'T REMEMBER ### 8",
+                        language="AFRIKAANS"
+                    ),
+                ]
+            ),
+        ]
+    ),
+    (
+        """Module: FACTORS | Question: 1401a | Language: English
+
+Many different factors can prevent women from getting medical advice or treatment for themselves. When you are """
+        """sick and want to get medical advice or treatment, is the following a big problem or not a big problem: """
+        """Getting permission to go to the doctor?
+
+BIG PROBLEM = 1
+
+NOT A BIG PROBLEM = 2""",
+        [
+            Module(
+                module_name="FACTORS",
+                module_title=None,
+                module_intro=None,
+                questions=[
+                    Question(
+                        question_id="1401a",
+                        question="Many different factors can prevent women from getting medical advice or treatment "
+                                 "for themselves. When you are sick and want to get medical advice or treatment, is "
+                                 "the following a big problem or not a big problem: Getting permission to go to the "
+                                 "doctor?",
+                        instructions=None,
+                        options="BIG PROBLEM ### 1 ||| NOT A BIG PROBLEM ### 2",
+                        language="English"
+                    ),
+                ]
+            ),
+        ]
+    ),
+    (
+        """Module: HISTORY3 | Question: 1454 | Language: AFRIKAANS
+
+Hoeveel keer het dit in die afgelope 12 maande met jou gebeur?
+
+NUMBER OF TIMES: _______""",
+        [
+            Module(
+                module_name="HISTORY3",
+                module_title=None,
+                module_intro=None,
+                questions=[
+                    Question(
+                        question_id="1454",
+                        question="Hoeveel keer het dit in die afgelope 12 maande met jou gebeur?",
+                        instructions="NUMBER OF TIMES:",
+                        options=None,
+                        language="AFRIKAANS"
+                    ),
+                ]
+            ),
+        ]
+    ),
+]
 
 
 def set_langchain_splits(chunk_size: int, overlap_size: int):
@@ -193,45 +849,70 @@ def parse_csv(input_csv_file: str, splitter: Callable = split_langchain) -> dict
     :type input_csv_file: str
     :param splitter: Function to use for splitting in case not a REDCap data dictionary. Defaults to split_langchain.
     :type splitter: Callable
-    :return: Dictionary with form data or split content.
+    :return: Dictionary with form data (if REDCap), otherwise list with split content.
     :rtype: dict | list
     """
 
-    form_data = {"questionnairedata": []}
     with open(input_csv_file, newline='', encoding='utf-8') as csvfile:
         reader = csv.DictReader(csvfile)
-        try:
-            if 'Field Type' not in reader.fieldnames:
-                # raise exception to fall back to generic CSV processing
-                raise ValueError('CSV file does not appear to be a REDCap data dictionary (no "Field Type" column).')
 
+        # assume REDCap data dictionary format if "Field Type" column is present
+        if 'Field Type' in reader.fieldnames:
             # process REDCap data dictionary
+            all_questions = {}
             for row in reader:
-                question_data = {}
+                assert isinstance(row, dict)  # (type hint for IDE)
                 field_type = row['Field Type']
-                if field_type == 'descriptive' or field_type in ['text', 'number']:
-                    question_data['question_id'] = row['Variable / Field Name']
-                    question_data['question'] = row['Field Label']
-                    question_data['instructions'] = row.get('Field Note', '')
-                    question_data['options'] = []
-                elif field_type in ['radio', 'checkbox']:
-                    question_data['question_id'] = row['Variable / Field Name']
-                    question_data['question'] = row['Field Label']
-                    question_data['instructions'] = row.get('Field Note', '')
-                    choices = row.get('Choices, Calculations, OR Slider Labels', '').split('|')
-                    question_data['options'] = [{"value": c.split(',')[0].strip(), "label": c.split(',')[1].strip()} for
-                                                c in choices]
-                else:
-                    continue
-                form_data['question'].append(question_data)
-        except Exception:
+                # only read supported field types
+                if field_type in ['descriptive', 'text', 'number', 'radio', 'checkboxes', 'dropdown', 'slider',
+                                  'yesno', 'truefalse']:
+                    question_id = row['Variable / Field Name']
+                    options = []
+                    if field_type in ['radio', 'checkboxes', 'dropdown']:
+                        # parse choices from "value, label | value, label | ..." pairs
+                        choice_strs = row.get('Choices, Calculations, OR Slider Labels', '').split('|')
+                        for choice_str in choice_strs:
+                            value, label = choice_str.split(',', 1)
+                            value = value.strip()
+                            label = label.strip()
+                            options.append({'label': label, 'value': value})
+                    elif field_type == 'slider':
+                        # parse choices from "label | label | ..." format
+                        slider_strs = row.get('Choices, Calculations, OR Slider Labels', '').split('|')
+                        for slider_str in slider_strs:
+                            options.append({'label': slider_str, 'value': slider_str})
+                    elif field_type == 'yesno':
+                        options.append({'label': "yes", 'value': "1"})
+                        options.append({'label': "no", 'value': "0"})
+                    elif field_type == 'truefalse':
+                        options.append({'label': "true", 'value': "1"})
+                        options.append({'label': "false", 'value': "0"})
+
+                    all_questions[question_id] = [
+                        {
+                            'question': row['Field Label'],
+                            'instructions': row.get('Field Note', ''),
+                            'options': options,
+                            'language': "Unknown"   # (language not specified in REDCap data dictionary)
+                        }
+                    ]
+
+                # return all questions in a single module
+                form_data = {
+                    "REDCap_module": {
+                        "module_name": "REDCap_module",
+                        "module_title": "",
+                        "module_intro": "",
+                        "questions": all_questions
+                    }
+                }
+                return form_data
+        else:
             # fall back to generic CSV processing
             content_list = ['\t'.join(row) for row in reader]
             content_str = '\n'.join(content_list)
             content_str = clean_whitespace(content_str)
             return split(content_str, splitter)
-
-    return form_data
 
 
 def convert_tables(md_text: str) -> str:
@@ -254,29 +935,7 @@ def convert_tables(md_text: str) -> str:
     return plain_text_tables
 
 
-def process_in_korn_format(data: list) -> dict:
-    """
-    Process data in a specific format to structure it into a dictionary with questions.
-
-    :param data: List of modules and questions.
-    :type data: list
-    :return: Dictionary with structured questions.
-    :rtype: dict
-    """
-
-    final_data = {'questionnairedata': []}
-    for module in data:
-        for question in module['questions']:
-            final_data['questionnairedata'].append({
-                'module': module.get('moduleTitle', ''),
-                'question': question['question'],
-                'instructions': question['instructions'],
-                'options': question['options']
-            })
-    return final_data
-
-
-def parse_xlsx(file_path: str, splitter: Callable = split_langchain):
+def parse_xlsx(file_path: str, splitter: Callable = split_langchain) -> list[str] | dict:
     """
     Parse an XLSX file into a dictionary with questionnaire data.
 
@@ -287,78 +946,181 @@ def parse_xlsx(file_path: str, splitter: Callable = split_langchain):
     :type file_path: str
     :param splitter: Function used to split content. Defaults to split_langchain.
     :type splitter: Callable
-    :return: List of processed content in Document format or list format.
+    :return: A dict with structured content if it was an XLSForm, otherwise a list of split content to process.
+    :rtype: list[str] | dict
     """
 
-    try:
-        # define input tags for XML parsing
-        input_tags = [
-            "{http://www.w3.org/2002/xforms}input",
-            "{http://www.w3.org/2002/xforms}select1",
-            "{http://www.w3.org/2002/xforms}textarea",
-            "{http://www.w3.org/2002/xforms}upload"
-        ]
+    # first load the workbook
+    wb = load_workbook(file_path)
 
-        # convert XLSX to XML (assuming XLSForm format)
-        path_without_ext = os.path.splitext(file_path)[0]
-        os.system(f'xls2xform "{file_path}" "{path_without_ext}.xml"')
-        tree = ElementTree.parse(f"{path_without_ext}.xml")
+    # if there are survey, choices, and settings worksheets, assume it's an XLSForm
+    if 'survey' in wb.sheetnames and 'choices' in wb.sheetnames and 'settings' in wb.sheetnames:
+        # process the XLSForm
+        survey_ws = wb['survey']
+        survey_columns = _get_columns_from_headers(survey_ws)
+        survey_data = [row for row in survey_ws.values][1:]
+        choices_ws = wb['choices']
+        choices_columns = _get_columns_from_headers(choices_ws)
+        choices_data = [row for row in choices_ws.values][1:]
+        settings_ws = wb['settings']
+        settings_columns = _get_columns_from_headers(settings_ws)
 
-        # initialize questionnaire processing
-        questionnaire = []
-        start = False
-        state = ""
+        # hack for naming flexibility: if there's a "name" column but no "value" column, rename "name" to "value"
+        if 'name' in choices_columns and 'value' not in choices_columns:
+            choices_columns['value'] = choices_columns['name']
+            del choices_columns['name']
 
-        # iterate over XML tree elements
-        for elem in tree.iter():
-            if elem.tag == "{http://www.w3.org/1999/xhtml}body":
-                start = True
-            if start:
-                if elem.tag == "{http://www.w3.org/2002/xforms}group":
-                    questionnaire.append({"module": "", "questions": []})
-                    state = "group"
-                if elem.tag in input_tags and not questionnaire:
-                    questionnaire.append({"module": "", "questions": []})
-                if elem.tag in ["{http://www.w3.org/2002/xforms}input", "{http://www.w3.org/2002/xforms}textarea",
-                                "{http://www.w3.org/2002/xforms}upload"]:
-                    state = "input"
-                    questionnaire[-1]["questions"].append({"question": "", "instructions": "", "options": []})
-                if elem.tag == "{http://www.w3.org/2002/xforms}select1":
-                    state = "select"
-                    questionnaire[-1]["questions"].append({"question": "", "instructions": "", "options": []})
-                if elem.tag == "{http://www.w3.org/2002/xforms}item" and state == "select":
-                    state = "option"
-                    questionnaire[-1]["questions"][-1]["options"].append({"value": "", "label": ""})
-                if elem.tag == "{http://www.w3.org/2002/xforms}label":
-                    if state == "group":
-                        questionnaire[-1]["module"] = elem.text
-                    elif state in ["input", "select"]:
-                        questionnaire[-1]["questions"][-1]["question"] = elem.text
-                    elif state == "option":
-                        questionnaire[-1]["questions"][-1]["options"][-1]["label"] = elem.text
-                if elem.tag == "{http://www.w3.org/2002/xforms}value" and state == "option":
-                    questionnaire[-1]["questions"][-1]["options"][-1]["value"] = elem.text
-                    state = "select"
-        return process_in_korn_format(questionnaire)
-    except Exception:
-        # fallback method for processing XLSX files (when XLSForm processing fails)
-        loader = UnstructuredExcelLoader(file_path, mode="elements")
-        data = loader.load()
-        content_list = []
-        for page in data:
-            if 'text_as_html' in page.metadata:
-                html_content = page.metadata['text_as_html']
-            else:
-                html_content = page.page_content
-            if 'page_name' in page.metadata:
-                page_name = page.metadata['page_name']
-                content_list.append('<h1>' + page_name + '</h1>\n' + html_content)
+        # read the default_language from row 2 of the settings worksheet
+        default_language = settings_ws.cell(row=2, column=settings_columns['default_language']+1).value
 
-        # split and return the processed content
-        split_content = []
-        for content in content_list:
-            split_content.extend(split(clean_whitespace(content), splitter))
-        return split_content
+        # zip through the survey sheet to create a list of other languages in the form
+        other_languages = []
+        for column in survey_columns:
+            match = re.match(r"^label:(.*)", column)
+            if match:
+                language = match.group(1).strip()
+                # only consider adding languages we haven't already added (no dups wanted)
+                if language not in other_languages:
+                    # only add languages that also have translations in the choices sheet
+                    if f"label:{language}" in choices_columns:
+                        other_languages.append(language)
+
+        # next, zip through the survey sheet to create a list of survey items
+        output_data = {}
+        group_stack = []
+        groupless_count = 0
+        last_group = ""
+        for row in survey_data:
+            if row[survey_columns['type']] and row[survey_columns['name']]:
+                type_ = str(row[survey_columns['type']]).strip() if row[survey_columns['type']] is not None else ""
+                name = str(row[survey_columns['name']]).strip() if row[survey_columns['name']] is not None else ""
+                label = str(row[survey_columns['label']]).strip() if row[survey_columns['label']] is not None else ""
+                hint = str(row[survey_columns['hint']]).strip() if row[survey_columns['hint']] is not None else ""
+                
+                if type_ == "begin group" or type_ == "begin repeat":
+                    # new group, add to survey_data
+                    output_data[name] = {
+                        "module_name": name,
+                        "module_title": label,
+                        "module_intro": "",
+                        "questions": {}
+                    }
+                    # and remember that we're in this group
+                    group_stack.append(name)
+                elif type_ == "end group" or type_ == "end repeat":
+                    # pop the group stack to exit current group
+                    group_stack.pop()
+                elif label and type_ not in ["calculate", "calculate_here", "start", "end", "deviceid",
+                                             "simserial", "phonenumber", "subscriberid", "caseid", "audio audit",
+                                             "text audit", "speed violations count", "speed violations list",
+                                             "speed violations audit"]:
+                    # if question has a label isn't an invisible type, figure out which module it belongs to
+                    if group_stack:
+                        # group is most recent item added to the stack
+                        module = group_stack[-1]
+                    elif last_group and last_group.startswith("nomodule_"):
+                        # we have a groupless module open and going, so continue with that
+                        module = last_group
+                    else:
+                        # start a new groupless module
+                        groupless_count += 1
+                        module = f"nomodule_{groupless_count}"
+                        # add new module to survey_data
+                        output_data[module] = {
+                            "module_name": module,
+                            "module_title": "",
+                            "module_intro": "",
+                            "questions": {}
+                        }
+                    # remember this as the last group we were in
+                    last_group = module
+
+                    # assemble dictionary of questions
+                    questions = {name: []}
+
+                    # add item for base language first
+                    item = {
+                        "question": label,
+                        "language": default_language,
+                        "options": [],
+                        "instructions": hint
+                    }
+                    # if the type is "select_one" or "select_multiple", add the choices
+                    match = re.match(r"^(select_one|select_multiple) (.+)$", type_)
+                    if match:
+                        list_name = match.group(2)
+                        # loop through all rows on the choices sheet with a matching list_name
+                        for choice in choices_data:
+                            if choice[choices_columns['list_name']] == list_name:
+                                # add options one by one
+                                item["options"].append({
+                                    "label": str(choice[choices_columns['label']]).strip(),
+                                    "value": str(choice[choices_columns['value']]).strip()
+                                })
+                    questions[name].append(item)
+
+                    # next add translations (if any)
+                    if other_languages:
+                        for language in other_languages:
+                            translated_label = str(row[survey_columns[f"label:{language}"]]).strip() \
+                                if (f"label:{language}" in survey_columns
+                                    and row[survey_columns[f"label:{language}"]] is not None) else ""
+                            # only add translations with labels
+                            if translated_label:
+                                item = {
+                                    "question": translated_label,
+                                    "language": language,
+                                    "options": [],
+                                    "instructions": str(row[survey_columns[f"hint:{language}"]]).strip()
+                                    if f"hint:{language}" in survey_columns
+                                       and row[survey_columns[f"hint:{language}"]] is not None else ""
+                                }
+                                # if the type is "select_one" or "select_multiple", add the choices
+                                match = re.match(r"^(select_one|select_multiple) (.+)$", type_)
+                                if match:
+                                    list_name = match.group(2)
+                                    # loop through all rows on the choices sheet with a matching list_name
+                                    for choice in choices_data:
+                                        if choice[choices_columns['list_name']] == list_name:
+                                            # add options one by one
+                                            choice_label = str(choice[choices_columns[f"label:{language}"]]).strip() \
+                                                if (f"label:{language}" in choices_columns and
+                                                    choice[choices_columns[f"label:{language}"]] is not None) else ""
+                                            if not choice_label:
+                                                # use default language label if translated label missing
+                                                choice_label = str(choice[choices_columns['label']]).strip()
+                                            item["options"].append({
+                                                "label": choice_label,
+                                                "value": str(choice[choices_columns['value']]).strip()
+                                                if f"hint:{language}" in choices_columns
+                                                   and choice[choices_columns['value']] is not None else ""
+                                            })
+                                questions[name].append(item)
+
+                    # update our output data with the new questions (translations for the current field)
+                    output_data[module]["questions"].update(questions)
+
+        # return structured data
+        return clean_data(output_data)
+
+    # otherwise, fallback to unstructured processing
+    loader = UnstructuredExcelLoader(file_path, mode="elements")
+    data = loader.load()
+    content_list = []
+    for page in data:
+        if 'text_as_html' in page.metadata:
+            html_content = page.metadata['text_as_html']
+        else:
+            html_content = page.page_content
+        if 'page_name' in page.metadata:
+            page_name = page.metadata['page_name']
+            content_list.append('<h1>' + page_name + '</h1>\n' + html_content)
+
+    # split and return the processed content
+    split_content = []
+    for content in content_list:
+        split_content.extend(split(clean_whitespace(content), splitter))
+    return split_content
 
 
 def read_local_html(path: str, splitter: Callable = split_langchain) -> list:
@@ -578,459 +1340,8 @@ def combine_texts(texts1: list, texts2: list) -> str:
     return combined_text
 
 
-def create_schema(question_id_spec: str = None, module_spec: str = None, module_desc_spec: str = None,
-                  question_spec: str = None,
-                  instructions_spec: str = None, options_spec: str = None, language_spec: str = None,
-                  kor_general_spec: str = None) -> tuple[Object, Validator]:
-    """
-    Create a schema based on a pydantic model for questionnaire data.
-
-    This function generates a schema using dynamic descriptions for the fields of a Question class,
-    and returns a schema and an extraction validator.
-
-    :param question_id_spec: Specification for the 'question_id' field.
-    :type question_id_spec: str
-    :param module_spec: Specification for the 'module' field.
-    :type module_spec: str
-    :param module_desc_spec: Specification for the 'module_description' field.
-    :type module_desc_spec: str
-    :param question_spec: Specification for the 'question' field.
-    :type question_spec: str
-    :param instructions_spec: Specification for the 'instructions' field.
-    :type instructions_spec: str
-    :param options_spec: Specification for the 'options' field.
-    :type options_spec: str
-    :param language_spec: Specification for the 'language' field.
-    :type language_spec: str
-    :param kor_general_spec: Overall specification for the schema.
-    :type kor_general_spec: str
-    :return: A tuple containing the schema and extraction validator.
-    :rtype: tuple[Object, Validator]
-    """
-
-    # set defaults as needed
-    if not question_id_spec:
-        question_id_spec = ('Question ID: a numeric or alphanumeric identifier or short variable name identifying a '
-                            'specific question, usually located just before or at the beginning of a new question.')
-    if not module_spec:
-        module_spec = ('Module title: Represents the main section or category within which a series of questions are '
-                       'located (e.g., "Health" or "Demographics"). It might include a number or index, but should '
-                       'also include a short title.')
-    if not module_desc_spec:
-        module_desc_spec = ("Module introduction: Introductory text or instructions that appear at the start of a new "
-                            "module, before the module's questions appear.")
-    if not question_spec:
-        question_spec = ('Question: A single question or label/description of a single form field, often following '
-                         'a numerical code or identifier like "2.01." or "gender:" Must be text designed to elicit '
-                         'specific information, often in the form of a question (e.g., "How old are you?") or prompt '
-                         '(e.g., "Your age:"). Might be in different languages, but the structure remains the same.')
-    if not instructions_spec:
-        instructions_spec = ('Question instructions: Instructions or other guidance about how to ask or answer the '
-                             'question, including enumerator or interviewer instructions. If the question includes '
-                             'a list of specific response options, do NOT include those in the instructions.')
-    if not options_spec:
-        options_spec = ("Question options: The list of specific response options for multiple-choice questions. "
-                        "Often listed immediately after the question or instructions. Might include numbers, "
-                        "letters, or specific codes followed by the actual response option text. Separate options "
-                        "with a space, a pipe symbol, and another space, like this: '1. Yes | 2. No'.")
-    if not language_spec:
-        language_spec = 'Question language: The language in which the question is written.'
-    if not kor_general_spec:
-        kor_general_spec = ('Questionnaire: A questionnaire consists of a list of questions or prompts (question) '
-                            'that are used to collect data from respondents. Each question might include a short ID '
-                            'number or name (question_id), instructions, and/or a list of specific response options '
-                            '(options), and each question might appear in multiple languages (language). These '
-                            'questions might be organized within a series of modules (or sections), each of which '
-                            'might have a title and introductory instructions '
-                            '(module_description). You must return the questionnaire in the '
-                            'same order as it was given to you and in each json you must return either a module '
-                            'or question. If there is a question that is not complete, DO NOT return it.')
-
-    class QuestionnaireData(BaseModel):
-        """
-        Pydantic model representing a questionnaire question.
-
-        Each field of the model is optional and includes a description provided
-        as a parameter to the create_schema function.
-        """
-
-        question_id: Optional[str] = Field(description=question_id_spec)
-        module: Optional[str] = Field(description=module_spec)
-        module_description: Optional[str] = Field(description=module_desc_spec)
-        question: Optional[str] = Field(description=question_spec)
-        instructions: Optional[str] = Field(description=instructions_spec)
-        options: Optional[str] = Field(description=options_spec)
-        language: Optional[str] = Field(description=language_spec)
-
-    # generate schema and extraction validator from the QuestionnaireData class
-    schema, extraction_validator = from_pydantic(
-        QuestionnaireData,
-        description=kor_general_spec,
-        examples=[
-            ("""2. Demographics
-
-We’ll begin with some questions so that we can get to know you and your family.
-
-[BIRTHYR] What year were you born?
-
-[GENDER] Which gender do you identify with?
-
-Female
-
-Male
-
-Non-binary
-
-Prefer not to answer
-
-[ZIPCODE] What is your zip code?""", {"questionnairedata": [
-                {
-                    "module": "2. Demographics",
-                    "module_description": "We’ll begin with some questions so that we can get to know you and your "
-                                          "family.",
-                },
-                {
-                    "question_id": "BIRTHYR",
-                    "question": "What year were you born?",
-                    "language": "English"
-                },
-                {
-                    "question_id": "GENDER",
-                    "question": "Which gender do you identify with?",
-                    "options": "Female | Male | Non-binary | Prefer not to answer",
-                    "language": "English"
-                },
-                {
-                    "question_id": "ZIPCODE",
-                    "question": "What is your zip code?",
-                    "language": "English"
-                }
-            ]}),
-            ("""[EDUCATION] What is the highest level of education you have completed?
-
-o Less than high school
-
-o High school / GED
-
-o Some college
-
-o 2-year college degree
-
-o 4-year college degree
-
-o Vocational training
-
-o Graduate degree
-
-o Prefer not to answer""", {"questionnairedata": [
-                {
-                    "question_id": "EDUCATION",
-                    "question": "What is the highest level of education you have completed?",
-                    "options": "Less than high school | High school / GED | Some college | 2-year college degree | "
-                               "4-year college degree | Vocational training | Graduate degree | Prefer not to answer",
-                    "language": "English"
-                }
-            ]}),
-            ("""And how much do you disagree or agree with the following statements? For each statement, please """
-             """rate how much the pair of traits applies to you, even if one trait applies more strongly than the """
-             """other. I see myself as... [For each: 1=Strongly disagree, 7=Strongly agree]
-
-[BIG5Q1] Extraverted, enthusiastic
-
-[BIG5Q2] Critical, quarrelsome
-
-[BIG5Q3] Dependable, self-disciplined""", {"questionnairedata": [
-                {
-                    "question_id": "BIG5Q1",
-                    "question": "And how much do you disagree or agree with the following statement? I see myself "
-                                "as... Extraverted, enthusiastic",
-                    "options": "1=Strongly disagree | 2 | 3 | 4 | 5 | 6 | 7=Strongly agree",
-                    "instructions": "Please rate how much the pair of traits applies to you, even if one trait applies "
-                                    "more strongly than the other.",
-                    "language": "English"
-                },
-                {
-                    "question_id": "BIG5Q2",
-                    "question": "And how much do you disagree or agree with the following statement? I see myself "
-                                "as... Critical, quarrelsome",
-                    "options": "1=Strongly disagree | 2 | 3 | 4 | 5 | 6 | 7=Strongly agree",
-                    "instructions": "Please rate how much the pair of traits applies to you, even if one trait applies "
-                                    "more strongly than the other.",
-                    "language": "English"
-                }]}),
-            (
-                """4. Savings Habits
-
-Next, we will ask questions over your monthly saving habits and the potential methods that are used to save money.
-
-1. On average, how much money do you spend monthly on essential goods below that contribute to your wellbeing """
-                """(explain/ add in an example)
-
-2. How do you typically spend your monthly income? (choose all that may apply)
-
-a. Home and Housing
-
-b. Retirement
-
-c. Bills and Utility
-
-d. Medical (Physical and Mental Treatment and Care)
-
-e. Taxes
-
-f. Insurance
-
-g. Credit Card Payments (if applicable)
-
-h. Food
-
-i. Shopping and personal items
-
-j. Other
-
-k. I am not able to save money each month
-
-l. Nothing
-
-m. Don’t Know
-
-3. Do you contribute the same amount or more to your savings each month?""", {"questionnairedata": [
-                    {
-                        "module": "4. Savings Habits",
-                        "module_description": "Next, we will ask questions over your monthly saving habits and the "
-                                              "potential methods that are used to save money.",
-                    },
-                    {
-                        "question_id": "1",
-                        "question": "On average, how much money do you spend monthly on essential goods below that "
-                                    "contribute to your wellbeing (explain/ add in an example)",
-                        "language": "English"
-                    },
-                    {
-                        "question_id": "2",
-                        "question": "How do you typically spend your monthly income?",
-                        "options": "a. Home and Housing | b. Retirement | c. Bills and Utility | d. Medical "
-                                   "(Physical and Mental Treatment and Care) | e. Taxes | f. Insurance | g. Credit "
-                                   "Card Payments (if applicable) | h. Food | i. Shopping and personal items | j. "
-                                      "Other | k. I am not able to save money each month | l. Nothing | m. Don’t Know",
-                        "instructions": "(choose all that may apply)",
-                        "language": "English"
-                    },
-                    {
-                        "question_id": "3",
-                        "question": "Do you contribute the same amount or more to your savings each month?",
-                        "language": "English"
-                    }
-                ]}
-            ),
-            (
-                """<h1>Round 1, June 2020 Eng</h1>
-<table border="1" class="dataframe">
-<tbody>
-<tr>
-<td>Module</td>
-<td>Section</td>
-<td>Variable</td>
-<td>Question</td>
-<td>Response set</td>
-</tr>
-<tr>
-<td></td>
-<td>CONS. Introduction and Consent</td>
-<td></td>
-<td></td>
-<td></td>
-</tr>
-<tr>
-<td>core</td>
-<td>CONS</td>
-<td></td>
-<td>Good morning/afternoon/evening. My name is ______________________ from Innovations from Poverty Action, a """
-                """Mexican research NGO. \n \n We would like to invite you to participate in a survey lasting about """
-                """20 minutes about the effects of covid-19 on economic and social conditions in the Mexico City """
-                """metropolitan area. If you are eligible for the survey we will compensate you [30 pesos] in """
-                """airtime for completing your survey.</td>
-<td></td>
-</tr>
-<tr>
-<td></td>
-<td>CONS</td>
-<td>cons1</td>
-<td>Can I give you more information?</td>
-<td>Y/N</td>
-</tr>
-<tr>
-<td></td>
-<td>CONS</td>
-<td></td>
-<td>*If cons1=N\n Thank you for your response. We will end the survey now.</td>
-<td>[End survey]</td>
-</tr>
-<tr>
-<td>core</td>
-<td>END</td>
-<td>end4</td>
-<td>What is your first name?</td>
-<td></td>
-</tr>
-<tr>
-<td>core</td>
-<td>DEM</td>
-<td>dem1</td>
-<td>How old are you?</td>
-<td>*Enter age*\n ###</td>
-</tr>
-<tr>
-<td>core</td>
-<td>CONS</td>
-<td></td>
-<td>*If DEM1&lt;18*\n Thank you for your response. We will end the survey now.</td>
-<td>[End survey]</td>
-</tr>""", {"questionnairedata": [
-                    {
-                        "module": "CONS. Introduction and Consent",
-                    },
-                    {
-                        "question": """Good morning/afternoon/evening. My name is ______________________ from """
-                        """Innovations from Poverty Action, a """
-                        """Mexican research NGO. \n \n We would like to invite you to participate in a survey """
-                        """lasting about 20 minutes about the effects of covid-19 on economic and social """
-                        """conditions in the Mexico City metropolitan area. If you are eligible for the survey """
-                        """we will compensate you [30 pesos] in airtime for completing your survey.""",
-                        "language": "English"
-                    },
-                    {
-                        "question_id": "cons1",
-                        "question": "Can I give you more information?",
-                        "options": "Y | N",
-                        "instructions": "*If cons1=N\n Thank you for your response. We will end the survey now. "
-                                        "[End survey]",
-                        "language": "English"
-                    },
-                    {
-                        "question_id": "end4",
-                        "question": "What is your first name?",
-                        "language": "English"
-                    },
-                    {
-                        "question_id": "dem1",
-                        "question": "How old are you?",
-                        "instructions": "*Enter age*\n ###\n"
-                                        "*If DEM1&lt;18*\n Thank you for your response. We will end the survey now. "
-                                        "[End survey]",
-                        "language": "English"
-                    }
-                ]}
-            ),
-            (
-                """<tr>
-<td>MEXICO</td>
-<td>INC</td>
-<td>inc11_mex</td>
-<td>*If YES to INC12_mex*\n If schools and daycares remained closed and workplaces re-opened, would anyone in your """
-                """household have to stay home and not return to work in order to care for children too young to """
-                """stay at home without supervision?</td>
-<td>*Read out, select multiple possible*\n Grandparents\n Hired babysitter\n Neighbors\n Mother who normally st\n """
-                """Mother who normally works outside the home\n Father who normally works outside the home\n Older """
-                """sibling\n DNK</td>
-</tr>
-<tr>
-<td></td>
-<td>NET. Social Safety Net</td>
-<td></td>
-<td></td>
-<td></td>
-</tr>
-<tr>
-<td>core</td>
-<td>NET</td>
-<td>net1</td>
-<td>Do you usually receive a regular transfer from any cash transfer or other in-kind social support program?\n """
-                """\n HINT: Social safety net programs include cash transfers and in-kind food transfers (food """
-                """stamps and vouchers, food rations, and emergency food distribution). Example includes XXX cash """
-                """transfer programme.</td>
-<td>Y/N/DNK</td>
-</tr>""", {"questionnairedata": [
-                    {
-                        "question_id": "inc11_mex",
-                        "question": """If schools and daycares remained closed and workplaces re-opened, would """
-                        """anyone in your household have to stay home and not return to work in order to care for """
-                        """children too young to stay at home without supervision?""",
-                        "options": "Grandparents | Hired babysitter | Neighbors | Mother who normally st | Mother who "
-                                   "normally works outside the home | Father who normally works outside the home | "
-                                   "Older sibling | DNK",
-                        "instructions": "*If YES to INC12_mex*\n*Read out, select multiple possible*",
-                        "language": "English"
-                    },
-                    {
-                        "module": "NET. Social Safety Net",
-                    },
-                    {
-                        "question_id": "net1",
-                        "question": """Do you usually receive a regular transfer from any cash transfer or other """
-                                    """in-kind social support program?\n \n HINT: Social safety net programs """
-                                    """include cash transfers and in-kind food transfers (food stamps and vouchers, """
-                                    """food rations, and emergency food distribution). Example includes XXX cash """
-                                    """transfer programme.""",
-                        "options": "Y | N | DNK",
-                        "instructions": "*If cons1=N\n Thank you for your response. We will end the survey now. "
-                                        "[End survey]",
-                        "language": "English"
-                    }
-                ]}
-            ),
-            (
-                """<tr>
-<td></td>
-<td>POL. POLICING</td>
-<td></td>
-<td></td>
-<td></td>
-</tr>
-<tr>
-<td>MEXICO</td>
-<td>POL</td>
-<td></td>
-<td>Now I am going to ask you some questions about the main problems of insecurity in Mexico City and the """
-                """performance of the city police since the coronavirus pandemic began around March 20, 2020.</td>
-<td></td>
-</tr>
-<tr>
-<td>MEXICO</td>
-<td>POL</td>
-<td>POL1</td>
-<td>Compared to the level of insecurity that existed in your neighborhood before the pandemic began, do you """
-                """consider that the level of insecurity in your neighborhood decreased, remained more or less the """
-                """same, or increased?</td>
-<td>Decreased\n it was more or less the same\n increased\n (777) Doesn’t answer\n (888) Doesn’t know\n (999) """
-                """Doesn’t apply</td>
-</tr>""", {"questionnairedata": [
-                    {
-                        "module": "POL. POLICING",
-                        "module_description": "Now I am going to ask you some questions about the main problems of "
-                                              "insecurity in Mexico City and the performance of the city police since "
-                                              "the coronavirus pandemic began around March 20, 2020."
-                    },
-                    {
-                        "question_id": "POL1",
-                        "question": """Compared to the level of insecurity that existed in your neighborhood before """
-                                    """the pandemic began, do you consider that the level of insecurity in your """
-                                    """neighborhood decreased, remained more or less the same, or increased?""",
-                        "options": "Decreased | it was more or less the same | increased | (777) Doesn’t answer | "
-                                   "(888) Doesn’t know | (999) Doesn’t apply",
-                        "language": "English"
-                    }
-                ]}
-            )
-        ],
-        many=True,
-    )
-
-    return schema, extraction_validator
-
-
 def generate_extractor_chain(model_input: str, api_base: str, openai_api_key: str, open_api_version: str,
-                             schema: Object, default_kor_prompt: str = None, provider: str = "azure") -> LLMChain:
+                             provider: str = "azure") -> Runnable:
     """
     Generate an extractor chain based on the specified language model and API settings.
 
@@ -1042,24 +1353,11 @@ def generate_extractor_chain(model_input: str, api_base: str, openai_api_key: st
     :type openai_api_key: str
     :param open_api_version: Version of the OpenAI API to use.
     :type open_api_version: str
-    :param schema: Schema definition for the extraction.
-    :type schema: Object
-    :param default_kor_prompt: Default prompt template for knowledge ordering and reasoning.
-    :type default_kor_prompt: str
     :param provider: Provider for the LLM service ("openai" for direct OpenAI, "azure" for Azure). Default is "azure".
     :type provider: str
     :return: An extraction chain configured with the specified parameters.
-    :rtype: LLMChain
+    :rtype: Runnable
     """
-
-    # set defaults as needed
-    if not default_kor_prompt:
-        default_kor_prompt = ("Your goal is to extract structured information from the user's input that matches "
-                              "the format described below. When extracting information, please make sure it matches "
-                              "the type information exactly. Please return the information in order. Only extract the "
-                              "information that is in the document. Do not add any extra information. Do not add any "
-                              "attributes that do not appear in the schema shown below.\n\n"
-                              "{type_description}\n\n{format_instructions}\n\n")
 
     # initialize LLM
     if provider == "azure":
@@ -1083,16 +1381,13 @@ def generate_extractor_chain(model_input: str, api_base: str, openai_api_key: st
     else:
         raise ValueError("Unsupported provider specified. Choose 'openai' or 'azure'.")
 
-    # define the prompt template for the extraction chain
-    template = PromptTemplate(
-        input_variables=["type_description", "format_instructions"],
-        template=default_kor_prompt,
+    runnable = prompt | llm.with_structured_output(
+        schema=ModuleList,
+        method="function_calling",
+        include_raw=False,
     )
 
-    # create and return the extraction chain
-    chain = create_extraction_chain(llm, schema, encoder_or_encoder_class="JSON",
-                                    instruction_template=template, input_formatter="triple_quotes")
-    return chain
+    return runnable
 
 
 def uri_validator(url: str) -> bool:
@@ -1117,7 +1412,7 @@ def get_data_from_url(url: str, splitter: Callable = split_langchain) -> list[st
     :type url: str
     :param splitter: Function or method used for processing the data.
     :type splitter: Callable
-    :return: Processed data based on file extension or None if an error occurs.
+    :return: A list of strings for raw text content, or a dictionary for structured content (needs no extra parsing).
     :rtype: list[str] | dict | None
     """
 
@@ -1161,47 +1456,6 @@ def get_data_from_url(url: str, splitter: Callable = split_langchain) -> list[st
     return retval
 
 
-def process_kor_data(data: dict) -> list:
-    """
-    Process and structure data specifically for knowledge ordering and reasoning.
-
-    :param data: Data to be processed, expected to have a 'questionnairedata' field.
-    :type data: dict
-    :return: A list of structured data.
-    :rtype: list
-    """
-
-    # log raw data for debugging purposes
-    parser_logger.log(logging.DEBUG, f"Raw data:\n{json.dumps(data, indent=2)}")
-
-    # handle either 1 or 2 layers of outer nesting
-    inner_data = data.get('questionnairedata', [])
-    if len(inner_data) == 1 and isinstance(inner_data[0], dict) and 'questionnairedata' in inner_data[0]:
-        # if the data is nested, process the inner data
-        inner_data = inner_data[0]['questionnairedata']
-
-    return [record for record in inner_data]
-
-
-async def safe_apredict(chain: LLMChain, page: str):
-    """
-    Asynchronously predict with error handling, ensuring a safe call to the AI prediction chain.
-
-    :param chain: The AI prediction chain to be used.
-    :type chain: LLMChain
-    :param page: The input text to be processed.
-    :type page: str
-    :return: The prediction result or a default value in case of an error.
-    """
-
-    try:
-        return await chain.apredict(text=page)
-    except Exception as e:
-        # report, then return a default value in case of an error
-        parser_logger.log(logging.ERROR, f"An error occurred: {e}")
-        return {'data': []}
-
-
 def total_string_length(d: dict) -> int:
     """
     Calculate the total string length of all values in a dictionary.
@@ -1212,7 +1466,17 @@ def total_string_length(d: dict) -> int:
     :rtype: int
     """
 
-    return sum(len(str(value)) for value in d.values())
+    # sum length of all strings, including those in nested lists of dicts
+    total_length = 0
+    for value in d.values():
+        if isinstance(value, list):
+            for item in value:
+                if isinstance(item, dict):
+                    total_length += total_string_length(item)
+        else:
+            total_length += len(str(value))
+
+    return total_length
 
 
 def clean_data(data: dict) -> dict:
@@ -1227,129 +1491,193 @@ def clean_data(data: dict) -> dict:
     """
 
     cleaned_data = {}
+    # run through all modules
     for key, dt in data.items():
         # assemble module questions, dropping empty questions
-        module = {question: question_data for question, question_data in dt.items() if question and question_data}
+        questions = {question: question_data for question, question_data in dt['questions'].items()
+                     if question and question_data}
 
         # skip empty modules
-        if not module:
+        if not questions:
             parser_logger.log(logging.INFO, f"Skipping empty module: {key}")
         else:
             parser_logger.log(logging.INFO, f"* Module: {key}")
-            # for each question, look for questions with the same question text
-            for question, question_data in module.items():
+            # for each question, look for questions with the same language
+            for question, question_data in questions.items():
                 if question_data:
                     to_remove = set()
                     for i in range(len(question_data)):
                         for j in range(i + 1, len(question_data)):
-                            if question_data[i]['question'] == question_data[j]['question']:
+                            if question_data[i]['language'] == question_data[j]['language']:
                                 # compare total string lengths and mark the shorter one for removal
                                 length_i = total_string_length(question_data[i])
                                 length_j = total_string_length(question_data[j])
                                 if length_i > length_j:
                                     to_remove.add(j)
+                                    parser_logger.log(logging.INFO, f"  * Dropping duplicate question with "
+                                                                    f"shorter content: "
+                                                                    f"{question} - {question_data[j]['language']} - "
+                                                                    f"{question_data[j]['question']} "
+                                                                    f"({length_j} <= {length_i})")
                                 else:
                                     to_remove.add(i)
-                                parser_logger.log(logging.INFO, f"  * Dropping duplicate question with shorter "
-                                                                f"content: "
-                                                                f"{question} - {question_data[i]['question']} "
-                                                                f"({length_i} vs {length_j})")
+                                    parser_logger.log(logging.INFO, f"  * Dropping duplicate question with "
+                                                                    f"shorter content: "
+                                                                    f"{question} - {question_data[i]['language']} - "
+                                                                    f"{question_data[i]['question']} "
+                                                                    f"({length_i} <= {length_j})")
 
-                    # Remove duplicates after identifying them
+                    # remove duplicates after identifying them
                     for index in sorted(to_remove, reverse=True):
                         question_data.pop(index)
 
-            cleaned_data[key] = module
+            # add module to cleaned data
+            cleaned_data[key] = {
+                "module_name": dt['module_name'],
+                "module_title": dt['module_title'],
+                "module_intro": dt['module_intro'],
+                "questions": questions
+            }
 
     return cleaned_data
 
 
-async def extract_data(chain: LLMChain, url: str) -> dict:
+async def extract_data(chain: Runnable, url: str, replacement_examples: List[Tuple[str, List[Question]]] = None,
+                       additional_examples: List[Tuple[str, List[Question]]] = None) -> dict:
     """
     Asynchronously process the content from a given URL and parse it into structured data.
 
     :param chain: The AI prediction chain to be used.
-    :type chain: LLMChain
+    :type chain: Runnable
     :param url: URL of the document to process.
     :type url: str
-    :return: Structured and cleaned data.
+    :param replacement_examples: Replacement examples to use (if any).
+    :type replacement_examples: List[Tuple[str, List[Question]]]
+    :param additional_examples: Additional examples to use (if any).
+    :type additional_examples: List[Tuple[str, List[Question]]]
+    :return: Dictionary of questions, organized by module.
     :rtype: dict
     """
 
-    docs = get_data_from_url(url)
-    structured = []
-    grouped_content = {}
-
-    if isinstance(docs, list):
-        # process list of documents asynchronously
-        if docs:
-            # track our LLM usage with an OpenAI callback
-            with get_openai_callback() as cb:
-                # create a list of tasks, then execute them asynchronously
-                tasks = [safe_apredict(chain, page) for page in docs]
-                results = await asyncio.gather(*tasks)
-
-                # report LLM usage
-                parser_logger.log(logging.INFO, f"Tokens consumed:: {cb.total_tokens}")
-                parser_logger.log(logging.INFO, f"  Prompt tokens: {cb.prompt_tokens}")
-                parser_logger.log(logging.INFO, f"  Completion tokens: {cb.completion_tokens}")
-                parser_logger.log(logging.INFO, f"Successful Requests: {cb.successful_requests}")
-                parser_logger.log(logging.INFO, f"Cost: ${cb.total_cost}")
-
-                # parse list of results
-                for res in results:
-                    # if the resulting data is a dict, process it
-                    if isinstance(res['data'], dict):
-                        structured.extend(process_kor_data(res['data']))
+    # construct example messages, including default set, plus any replacements or additional examples
+    example_messages = []
+    if replacement_examples is not None:
+        for text, tool_call in replacement_examples:
+            example_messages.extend(
+                tool_example_to_messages({"input": text, "tool_calls": tool_call})
+            )
     else:
-        # process single document, tracking our LLM usage with an OpenAI callback
-        with get_openai_callback() as cb:
-            structured = process_kor_data(docs)
+        for text, tool_call in examples:
+            example_messages.extend(
+                tool_example_to_messages({"input": text, "tool_calls": tool_call})
+            )
+    if additional_examples is not None:
+        for text, tool_call in additional_examples:
+            example_messages.extend(
+                tool_example_to_messages({"input": text, "tool_calls": tool_call})
+            )
 
-            # report LLM usage
-            parser_logger.log(logging.INFO, f"Tokens consumed:: {cb.total_tokens}")
-            parser_logger.log(logging.INFO, f"  Prompt tokens: {cb.prompt_tokens}")
-            parser_logger.log(logging.INFO, f"  Completion tokens: {cb.completion_tokens}")
-            parser_logger.log(logging.INFO, f"Successful Requests: {cb.successful_requests}")
-            parser_logger.log(logging.INFO, f"Cost: ${cb.total_cost}")
+    # get data from the URL
+    read_data = get_data_from_url(url)
+
+    # if a dict is returned, that means the data was read as structured and we can return it straight away
+    if isinstance(read_data, dict):
+        return read_data
+
+    # if it's an empty list, just return an empty dict
+    if not read_data:
+        return {}
+
+    # otherwise, we have to process a content list
+    # process list asynchronously, and track our LLM usage with an OpenAI callback
+    with get_openai_callback() as cb:
+        # create a list of tasks, then execute them asynchronously
+        tasks = [chain.ainvoke({"text": page, "examples": example_messages}) for page in read_data]
+        results = await asyncio.gather(*tasks)
+
+        # report LLM usage
+        parser_logger.log(logging.INFO, f"Tokens consumed:: {cb.total_tokens}")
+        parser_logger.log(logging.INFO, f"  Prompt tokens: {cb.prompt_tokens}")
+        parser_logger.log(logging.INFO, f"  Completion tokens: {cb.completion_tokens}")
+        parser_logger.log(logging.INFO, f"Successful Requests: {cb.successful_requests}")
+        parser_logger.log(logging.INFO, f"Cost: ${cb.total_cost}")
 
     # organize questions by module and question ID
+    grouped_output = {}
     question_module = {}
-    current_module = '(none)'
+    unknown_module_count = 0
     unknown_id_count = 0
-    for record in structured:
-        # get module name, defaulting to the current one
-        module = record.get('module', current_module)
-
-        # process question, if any
-        if record.get('question', '').strip():
-            # get question ID, if available
-            question_id = record.get('question_id', '')
-            if not question_id:
-                # if no question ID is provided, generate a unique ID
-                unknown_id_count += 1
-                question_id = f"unknown_id_{unknown_id_count}"
-
-            # always keep questions with the same ID together in the same module
-            if question_id in question_module:
-                module = question_module[question_id]
+    for module_list in results:
+        for module in module_list.modules:
+            # construct module name from whatever details we have, defaulting to auto-naming as necessary
+            if module.module_name == module.module_title:
+                module_key = module.module_name
+            elif module.module_name and module.module_title:
+                module_key = f"{module.module_name} - {module.module_title}"
+            elif module.module_name:
+                module_key = module.module_name
+            elif module.module_title:
+                module_key = module.module_title
             else:
-                question_module[question_id] = module
+                unknown_module_count += 1
+                module_key = f"MODULE_{unknown_module_count}"
 
-            # add question, grouped by module and question ID
-            grouped_content.setdefault(module, {}).setdefault(question_id, [])
-            grouped_content[module][question_id].append({
-                'question': record['question'],
-                'language': record.get('language', ''),
-                'options': record.get('options', ''),
-                'instructions': record.get('instructions', ''),
-            })
+            # run through all questions in module
+            for question in module.questions:
+                # process question, if any
+                if question.question and question.question.strip():
+                    # get question ID, if available
+                    question_id = question.question_id.strip() if question.question_id else ''
+                    if not question_id:
+                        # if no question ID is provided, generate a unique ID
+                        unknown_id_count += 1
+                        question_id = f"question_{unknown_id_count}"
 
-        # remember current module for next question
-        current_module = module
+                    if question_id in question_module:
+                        # if we've seen the question ID before, add this version to the same module as before
+                        question_list = grouped_output[question_module[question_id]].setdefault('questions', {})
+                    else:
+                        # otherwise, add it to the current module, adding the module to the output as needed
+                        if module_key not in grouped_output:
+                            # add module to output, ignoring module title if same as the module name
+                            grouped_output[module_key] = {
+                                "module_name": module.module_name if module.module_name else "",
+                                "module_title": module.module_title if module.module_title
+                                                                       and module.module_title != module.module_name
+                                                                    else "",
+                                "module_intro": module.module_intro if module.module_intro else "",
+                                "questions": {}
+                            }
+                        question_list = grouped_output[module_key].setdefault('questions', {})
+                        question_module[question_id] = module_key
+
+                    # parse and organize options, if any
+                    options = []
+                    if question.options:
+                        option_strs = [option.strip() for option in question.options.split('|||')]
+                        for option_str in option_strs:
+                            if '###' in option_str:
+                                option_parts = option_str.split('###')
+                                if len(option_parts) == 2:
+                                    option_parts = [part.strip() for part in option_parts]
+                                    options.append({'label': option_parts[0], 'value': option_parts[1]})
+                                else:
+                                    options.append({'label': option_str, 'value': option_str})
+                            else:
+                                options.append({'label': option_str, 'value': option_str})
+
+                    # add question, grouped by module and question ID
+                    if question_id not in question_list:
+                        question_list[question_id] = []
+                    question_list[question_id].append({
+                        'question': question.question,
+                        'language': question.language if question.language else '',
+                        'options': options,
+                        'instructions': question.instructions if question.instructions else '',
+                    })
 
     # return cleaned-up version of the data
-    return clean_data(grouped_content)
+    return clean_data(grouped_output)
 
 
 async def extract_data_from_directory(path_to_ingest: str, chain: LLMChain) -> list:
@@ -1377,16 +1705,150 @@ async def extract_data_from_directory(path_to_ingest: str, chain: LLMChain) -> l
     return data_list
 
 
-async def extract_data_from_file(file_path: str, chain: LLMChain) -> dict:
-    """
-    Extract structured data from a single file.
+def _add_header_to_first_empty_cell(worksheet, header):
+    for cell in worksheet[1]:
+        if cell.value is None or not cell.value:
+            cell.value = header
+            break
+    else:  # no break, meaning no empty cell was found
+        max_column = worksheet.max_column
+        worksheet.cell(row=1, column=max_column + 1, value=header)
 
-    :param file_path: Path to the file to process.
-    :type file_path: str
-    :param chain: The AI prediction chain to be used.
-    :type chain: LLMChain
-    :return: Structured data extracted from the processed file.
-    :rtype: dict
+
+def _get_columns_from_headers(worksheet, index_boost: int = 0) -> dict:
+    return {cell.value: i + index_boost for i, cell in enumerate(worksheet[1])
+            if cell.value is not None and cell.value.strip() != ''}
+
+
+def output_parsed_data_to_xlsform(data: dict, form_id: str, form_title: str, output_file: str):
+    """
+    Output parsed data to an XLSForm file.
+
+    :param data: Parsed data to output.
+    :type data: dict
+    :param form_id: Form ID to set in the XLSForm file.
+    :type form_id: str
+    :param form_title: Form title to set in the XLSForm file.
+    :type form_title: str
+    :param output_file: Path to the output XLSForm file.
+    :type output_file: str
     """
 
-    return await extract_data(chain, file_path)
+    # load the workbook
+    wb = load_workbook(empty_form_path)
+    survey_ws = wb['survey']
+    survey_columns = _get_columns_from_headers(survey_ws, 1)
+    choices_ws = wb['choices']
+    choices_columns = _get_columns_from_headers(choices_ws, 1)
+    settings_ws = wb['settings']
+    settings_columns = _get_columns_from_headers(settings_ws, 1)
+
+    # set the 'form_title' and 'form_id' values in row 2
+    settings_ws.cell(row=2, column=settings_columns['form_id'], value=form_id)
+    settings_ws.cell(row=2, column=settings_columns['form_title'], value=form_title)
+
+    # initialize our row counters to start adding at the second row
+    survey_row_counter = 2
+    choices_row_counter = 2
+
+    # iterate over each module in the data
+    primary_language = ""
+    for module in data.values():
+        # create a safe version of the module name by replacing anything not a digit or a letter with an _
+        safe_module_name = re.sub(r'\W+', '_', module['module_name']).lower()
+
+        # open a group for the module
+        survey_ws.cell(row=survey_row_counter, column=survey_columns['type'], value='begin group')
+        survey_ws.cell(row=survey_row_counter, column=survey_columns['name'], value=safe_module_name)
+        if module['module_title']:
+            survey_ws.cell(row=survey_row_counter, column=survey_columns['label'], value=module['module_title'])
+        survey_row_counter += 1
+
+        # if there is a 'module_intro' value in the module, add it as a note field
+        if module['module_intro']:
+            survey_ws.cell(row=survey_row_counter, column=survey_columns['type'], value='note')
+            survey_ws.cell(row=survey_row_counter, column=survey_columns['label'], value=module['module_intro'])
+            survey_row_counter += 1
+
+        # iterate over each question in the module
+        for question_id, question_data in module['questions'].items():
+            # create a safe version of the question ID by replacing anything not a digit or a letter with an _
+            safe_question_id = re.sub(r'\W+', '_', question_id).lower()
+            # if safe_question_id doesn't begin with a letter, put a 'q' on the front
+            if not safe_question_id[0].isalpha():
+                safe_question_id = 'q' + safe_question_id
+
+            # iterate over each translation for the question
+            has_choices = False
+            for translation in question_data:
+                # if we don't have our primary language yet, use the first language we find
+                if not primary_language:
+                    primary_language = translation['language']
+                    settings_ws.cell(row=2, column=settings_columns['default_language'], value=primary_language)
+
+                # set language suffix
+                if translation['language'] and translation['language'] != primary_language:
+                    language_suffix = f":{translation['language']}"
+                    label_column = 'label' + language_suffix
+                    hint_column = 'hint' + language_suffix
+                    # also add translation columns as necessary
+                    if label_column not in survey_columns:
+                        _add_header_to_first_empty_cell(survey_ws, label_column)
+                        survey_columns = _get_columns_from_headers(survey_ws)
+                    if translation['options'] and label_column not in choices_columns:
+                        _add_header_to_first_empty_cell(choices_ws, label_column)
+                        choices_columns = _get_columns_from_headers(choices_ws)
+                    if hint_column not in survey_columns:
+                        _add_header_to_first_empty_cell(survey_ws, hint_column)
+                        survey_columns = _get_columns_from_headers(survey_ws)
+                else:
+                    label_column = 'label'
+                    hint_column = 'hint'
+
+                # add the question to the survey sheet
+                survey_ws.cell(row=survey_row_counter, column=survey_columns['type'],
+                               value='text' if not translation['options'] else 'select_one ' + safe_question_id)
+                survey_ws.cell(row=survey_row_counter, column=survey_columns['name'], value=safe_question_id)
+                survey_ws.cell(row=survey_row_counter, column=survey_columns[label_column],
+                               value=translation['question'])
+                survey_ws.cell(row=survey_row_counter, column=survey_columns[hint_column],
+                               value=translation['instructions'])
+
+                # if there are options, we'll need to add them to the choices sheet (all at the end)
+                if translation['options']:
+                    has_choices = True
+
+            # increment survey row when we're done adding all translations
+            survey_row_counter += 1
+
+            # then, finally, add all choice options (with all translations)
+            if has_choices:
+                values_added = []
+                for translation in question_data:
+                    for option in translation['options']:
+                        if option['value'] not in values_added:
+                            # if we haven't added this option value yet, add it for all translations
+                            choices_ws.cell(row=choices_row_counter, column=choices_columns['list_name'],
+                                            value=safe_question_id)
+                            choices_ws.cell(row=choices_row_counter, column=choices_columns['value'],
+                                            value=option['value'])
+                            for inner_translation in question_data:
+                                for inner_option in inner_translation['options']:
+                                    if inner_option['value'] == option['value']:
+                                        if (inner_translation['language'] and inner_translation['language'] !=
+                                                primary_language):
+                                            label_column = 'label' + f":{inner_translation['language']}"
+                                        else:
+                                            label_column = 'label'
+                                        choices_ws.cell(row=choices_row_counter, column=choices_columns[label_column],
+                                                        value=inner_option['label'])
+                            choices_row_counter += 1
+                            values_added.append(option['value'])
+
+        # close the module's group
+        survey_ws.cell(row=survey_row_counter, column=survey_columns['type'], value='end group')
+        survey_ws.cell(row=survey_row_counter, column=survey_columns['name'], value=safe_module_name)
+        survey_row_counter += 1
+
+    # Save the workbook to the specified output file
+    wb.save(output_file)

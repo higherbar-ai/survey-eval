@@ -14,7 +14,8 @@ Installing the latest version with pip::
     pip install surveyeval
 
 Note that you might need to install additional requirements to use the ``survey_parser`` module. Only requirements for
-the core evaluation engine are automatically installed by ``pip``. To install all requirements, run::
+the core evaluation engine are automatically installed by ``pip``. To install all requirements, use
+`the requirements list from the full repo <https://github.com/higherbar-ai/survey-eval/blob/main/requirements.txt>`_::
 
     pip install -r requirements.txt
 
@@ -90,12 +91,13 @@ here to improve quality.
 Parsing input files
 ^^^^^^^^^^^^^^^^^^^
 
-The actual parsing happens with LLM assistance, via `the kor library <https://github.com/eyurtsev/kor>`_. All of that
-code lives also in the ``survey_parser`` module, with the core parsing instructions and examples in ``create_schema()``.
+The actual parsing happens in the ``survey_parser`` module, with LLM assistance via
+`the LangChain approach to extraction <https://python.langchain.com/docs/use_cases/extraction/>`_.
 
-Here too, performance can be quite poor, depending on the complexity of the source file's organization and formatting.
-There's much to improve here, and it's worth trying 
-`the new LangChain approaches to extraction <https://python.langchain.com/docs/use_cases/extraction/>`_ instead of Kor.
+If performance is poor for your file, you can try giving the parser some examples from the raw data read from your
+file. Search for ``examples`` in the ``survey_parser`` module to see the baseline examples. Then create your own
+examples and pass them in as the ``replacement_examples`` or ``additional_examples`` parameters to the
+``extract_data()`` function. This will help the LLM to better understand your file format.
 
 Tracking and reporting costs
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -112,8 +114,6 @@ There's much that can be improved here. For example:
 * We should generally overhaul the ``survey_parser`` module to better ingest different file formats into
   raw text that works consistently well for parsing. Better PDF, XLSForm, and REDCap support, in particular, would be
   nice.
-* We should try replacing Kor with 
-  `the latest LangChain approaches to extraction <https://python.langchain.com/docs/use_cases/extraction/>`_.
 * We should add an LLM cache that avoids calling out to the LLM for responses that it already has from prior requests.
   After all, it's common to evaluate the same instrument multiple times, and it's incredibly wasteful to 
   keep going back to the LLM for the same responses every time (for requests that haven't changed in any way).
