@@ -42,7 +42,6 @@ import nltk
 import spacy
 import csv
 import re
-import xml.etree.ElementTree as ElementTree
 import pytesseract
 from pypdf import PdfReader
 from tabula.io import read_pdf
@@ -850,45 +849,70 @@ def parse_csv(input_csv_file: str, splitter: Callable = split_langchain) -> dict
     :type input_csv_file: str
     :param splitter: Function to use for splitting in case not a REDCap data dictionary. Defaults to split_langchain.
     :type splitter: Callable
-    :return: Dictionary with form data or split content.
+    :return: Dictionary with form data (if REDCap), otherwise list with split content.
     :rtype: dict | list
     """
 
-    form_data = {"questionnairedata": []}
     with open(input_csv_file, newline='', encoding='utf-8') as csvfile:
         reader = csv.DictReader(csvfile)
-        try:
-            if 'Field Type' not in reader.fieldnames:
-                # raise exception to fall back to generic CSV processing
-                raise ValueError('CSV file does not appear to be a REDCap data dictionary (no "Field Type" column).')
 
+        # assume REDCap data dictionary format if "Field Type" column is present
+        if 'Field Type' in reader.fieldnames:
             # process REDCap data dictionary
+            all_questions = {}
             for row in reader:
-                question_data = {}
+                assert isinstance(row, dict)  # (type hint for IDE)
                 field_type = row['Field Type']
-                if field_type == 'descriptive' or field_type in ['text', 'number']:
-                    question_data['question_id'] = row['Variable / Field Name']
-                    question_data['question'] = row['Field Label']
-                    question_data['instructions'] = row.get('Field Note', '')
-                    question_data['options'] = []
-                elif field_type in ['radio', 'checkbox']:
-                    question_data['question_id'] = row['Variable / Field Name']
-                    question_data['question'] = row['Field Label']
-                    question_data['instructions'] = row.get('Field Note', '')
-                    choices = row.get('Choices, Calculations, OR Slider Labels', '').split('|')
-                    question_data['options'] = ' ||| '.join(
-                        [f"{c.split(',')[1].strip()} ### {c.split(',')[0].strip()}" for c in choices])
-                else:
-                    continue
-                form_data['question'].append(question_data)
-        except Exception:
+                # only read supported field types
+                if field_type in ['descriptive', 'text', 'number', 'radio', 'checkboxes', 'dropdown', 'slider',
+                                  'yesno', 'truefalse']:
+                    question_id = row['Variable / Field Name']
+                    options = []
+                    if field_type in ['radio', 'checkboxes', 'dropdown']:
+                        # parse choices from "value, label | value, label | ..." pairs
+                        choice_strs = row.get('Choices, Calculations, OR Slider Labels', '').split('|')
+                        for choice_str in choice_strs:
+                            value, label = choice_str.split(',', 1)
+                            value = value.strip()
+                            label = label.strip()
+                            options.append({'label': label, 'value': value})
+                    elif field_type == 'slider':
+                        # parse choices from "label | label | ..." format
+                        slider_strs = row.get('Choices, Calculations, OR Slider Labels', '').split('|')
+                        for slider_str in slider_strs:
+                            options.append({'label': slider_str, 'value': slider_str})
+                    elif field_type == 'yesno':
+                        options.append({'label': "yes", 'value': "1"})
+                        options.append({'label': "no", 'value': "0"})
+                    elif field_type == 'truefalse':
+                        options.append({'label': "true", 'value': "1"})
+                        options.append({'label': "false", 'value': "0"})
+
+                    all_questions[question_id] = [
+                        {
+                            'question': row['Field Label'],
+                            'instructions': row.get('Field Note', ''),
+                            'options': options,
+                            'language': "Unknown"   # (language not specified in REDCap data dictionary)
+                        }
+                    ]
+
+                # return all questions in a single module
+                form_data = {
+                    "REDCap_module": {
+                        "module_name": "REDCap_module",
+                        "module_title": "",
+                        "module_intro": "",
+                        "questions": all_questions
+                    }
+                }
+                return form_data
+        else:
             # fall back to generic CSV processing
             content_list = ['\t'.join(row) for row in reader]
             content_str = '\n'.join(content_list)
             content_str = clean_whitespace(content_str)
             return split(content_str, splitter)
-
-    return form_data
 
 
 def convert_tables(md_text: str) -> str:
@@ -911,29 +935,7 @@ def convert_tables(md_text: str) -> str:
     return plain_text_tables
 
 
-def process_in_korn_format(data: list) -> dict:
-    """
-    Process data in a specific format to structure it into a dictionary with questions.
-
-    :param data: List of modules and questions.
-    :type data: list
-    :return: Dictionary with structured questions.
-    :rtype: dict
-    """
-
-    final_data = {'questionnairedata': []}
-    for module in data:
-        for question in module['questions']:
-            final_data['questionnairedata'].append({
-                'module': module.get('moduleTitle', ''),
-                'question': question['question'],
-                'instructions': question['instructions'],
-                'options': question['options']
-            })
-    return final_data
-
-
-def parse_xlsx(file_path: str, splitter: Callable = split_langchain):
+def parse_xlsx(file_path: str, splitter: Callable = split_langchain) -> list[str] | dict:
     """
     Parse an XLSX file into a dictionary with questionnaire data.
 
@@ -944,78 +946,181 @@ def parse_xlsx(file_path: str, splitter: Callable = split_langchain):
     :type file_path: str
     :param splitter: Function used to split content. Defaults to split_langchain.
     :type splitter: Callable
-    :return: List of processed content in Document format or list format.
+    :return: A dict with structured content if it was an XLSForm, otherwise a list of split content to process.
+    :rtype: list[str] | dict
     """
 
-    try:
-        # define input tags for XML parsing
-        input_tags = [
-            "{http://www.w3.org/2002/xforms}input",
-            "{http://www.w3.org/2002/xforms}select1",
-            "{http://www.w3.org/2002/xforms}textarea",
-            "{http://www.w3.org/2002/xforms}upload"
-        ]
+    # first load the workbook
+    wb = load_workbook(file_path)
 
-        # convert XLSX to XML (assuming XLSForm format)
-        path_without_ext = os.path.splitext(file_path)[0]
-        os.system(f'xls2xform "{file_path}" "{path_without_ext}.xml"')
-        tree = ElementTree.parse(f"{path_without_ext}.xml")
+    # if there are survey, choices, and settings worksheets, assume it's an XLSForm
+    if 'survey' in wb.sheetnames and 'choices' in wb.sheetnames and 'settings' in wb.sheetnames:
+        # process the XLSForm
+        survey_ws = wb['survey']
+        survey_columns = _get_columns_from_headers(survey_ws)
+        survey_data = [row for row in survey_ws.values][1:]
+        choices_ws = wb['choices']
+        choices_columns = _get_columns_from_headers(choices_ws)
+        choices_data = [row for row in choices_ws.values][1:]
+        settings_ws = wb['settings']
+        settings_columns = _get_columns_from_headers(settings_ws)
 
-        # initialize questionnaire processing
-        questionnaire = []
-        start = False
-        state = ""
+        # hack for naming flexibility: if there's a "name" column but no "value" column, rename "name" to "value"
+        if 'name' in choices_columns and 'value' not in choices_columns:
+            choices_columns['value'] = choices_columns['name']
+            del choices_columns['name']
 
-        # iterate over XML tree elements
-        for elem in tree.iter():
-            if elem.tag == "{http://www.w3.org/1999/xhtml}body":
-                start = True
-            if start:
-                if elem.tag == "{http://www.w3.org/2002/xforms}group":
-                    questionnaire.append({"module": "", "questions": []})
-                    state = "group"
-                if elem.tag in input_tags and not questionnaire:
-                    questionnaire.append({"module": "", "questions": []})
-                if elem.tag in ["{http://www.w3.org/2002/xforms}input", "{http://www.w3.org/2002/xforms}textarea",
-                                "{http://www.w3.org/2002/xforms}upload"]:
-                    state = "input"
-                    questionnaire[-1]["questions"].append({"question": "", "instructions": "", "options": []})
-                if elem.tag == "{http://www.w3.org/2002/xforms}select1":
-                    state = "select"
-                    questionnaire[-1]["questions"].append({"question": "", "instructions": "", "options": []})
-                if elem.tag == "{http://www.w3.org/2002/xforms}item" and state == "select":
-                    state = "option"
-                    questionnaire[-1]["questions"][-1]["options"].append({"value": "", "label": ""})
-                if elem.tag == "{http://www.w3.org/2002/xforms}label":
-                    if state == "group":
-                        questionnaire[-1]["module"] = elem.text
-                    elif state in ["input", "select"]:
-                        questionnaire[-1]["questions"][-1]["question"] = elem.text
-                    elif state == "option":
-                        questionnaire[-1]["questions"][-1]["options"][-1]["label"] = elem.text
-                if elem.tag == "{http://www.w3.org/2002/xforms}value" and state == "option":
-                    questionnaire[-1]["questions"][-1]["options"][-1]["value"] = elem.text
-                    state = "select"
-        return process_in_korn_format(questionnaire)
-    except Exception:
-        # fallback method for processing XLSX files (when XLSForm processing fails)
-        loader = UnstructuredExcelLoader(file_path, mode="elements")
-        data = loader.load()
-        content_list = []
-        for page in data:
-            if 'text_as_html' in page.metadata:
-                html_content = page.metadata['text_as_html']
-            else:
-                html_content = page.page_content
-            if 'page_name' in page.metadata:
-                page_name = page.metadata['page_name']
-                content_list.append('<h1>' + page_name + '</h1>\n' + html_content)
+        # read the default_language from row 2 of the settings worksheet
+        default_language = settings_ws.cell(row=2, column=settings_columns['default_language']+1).value
 
-        # split and return the processed content
-        split_content = []
-        for content in content_list:
-            split_content.extend(split(clean_whitespace(content), splitter))
-        return split_content
+        # zip through the survey sheet to create a list of other languages in the form
+        other_languages = []
+        for column in survey_columns:
+            match = re.match(r"^label:(.*)", column)
+            if match:
+                language = match.group(1).strip()
+                # only consider adding languages we haven't already added (no dups wanted)
+                if language not in other_languages:
+                    # only add languages that also have translations in the choices sheet
+                    if f"label:{language}" in choices_columns:
+                        other_languages.append(language)
+
+        # next, zip through the survey sheet to create a list of survey items
+        output_data = {}
+        group_stack = []
+        groupless_count = 0
+        last_group = ""
+        for row in survey_data:
+            if row[survey_columns['type']] and row[survey_columns['name']]:
+                type_ = str(row[survey_columns['type']]).strip() if row[survey_columns['type']] is not None else ""
+                name = str(row[survey_columns['name']]).strip() if row[survey_columns['name']] is not None else ""
+                label = str(row[survey_columns['label']]).strip() if row[survey_columns['label']] is not None else ""
+                hint = str(row[survey_columns['hint']]).strip() if row[survey_columns['hint']] is not None else ""
+                
+                if type_ == "begin group" or type_ == "begin repeat":
+                    # new group, add to survey_data
+                    output_data[name] = {
+                        "module_name": name,
+                        "module_title": label,
+                        "module_intro": "",
+                        "questions": {}
+                    }
+                    # and remember that we're in this group
+                    group_stack.append(name)
+                elif type_ == "end group" or type_ == "end repeat":
+                    # pop the group stack to exit current group
+                    group_stack.pop()
+                elif label and type_ not in ["calculate", "calculate_here", "start", "end", "deviceid",
+                                             "simserial", "phonenumber", "subscriberid", "caseid", "audio audit",
+                                             "text audit", "speed violations count", "speed violations list",
+                                             "speed violations audit"]:
+                    # if question has a label isn't an invisible type, figure out which module it belongs to
+                    if group_stack:
+                        # group is most recent item added to the stack
+                        module = group_stack[-1]
+                    elif last_group and last_group.startswith("nomodule_"):
+                        # we have a groupless module open and going, so continue with that
+                        module = last_group
+                    else:
+                        # start a new groupless module
+                        groupless_count += 1
+                        module = f"nomodule_{groupless_count}"
+                        # add new module to survey_data
+                        output_data[module] = {
+                            "module_name": module,
+                            "module_title": "",
+                            "module_intro": "",
+                            "questions": {}
+                        }
+                    # remember this as the last group we were in
+                    last_group = module
+
+                    # assemble dictionary of questions
+                    questions = {name: []}
+
+                    # add item for base language first
+                    item = {
+                        "question": label,
+                        "language": default_language,
+                        "options": [],
+                        "instructions": hint
+                    }
+                    # if the type is "select_one" or "select_multiple", add the choices
+                    match = re.match(r"^(select_one|select_multiple) (.+)$", type_)
+                    if match:
+                        list_name = match.group(2)
+                        # loop through all rows on the choices sheet with a matching list_name
+                        for choice in choices_data:
+                            if choice[choices_columns['list_name']] == list_name:
+                                # add options one by one
+                                item["options"].append({
+                                    "label": str(choice[choices_columns['label']]).strip(),
+                                    "value": str(choice[choices_columns['value']]).strip()
+                                })
+                    questions[name].append(item)
+
+                    # next add translations (if any)
+                    if other_languages:
+                        for language in other_languages:
+                            translated_label = str(row[survey_columns[f"label:{language}"]]).strip() \
+                                if (f"label:{language}" in survey_columns
+                                    and row[survey_columns[f"label:{language}"]] is not None) else ""
+                            # only add translations with labels
+                            if translated_label:
+                                item = {
+                                    "question": translated_label,
+                                    "language": language,
+                                    "options": [],
+                                    "instructions": str(row[survey_columns[f"hint:{language}"]]).strip()
+                                    if f"hint:{language}" in survey_columns
+                                       and row[survey_columns[f"hint:{language}"]] is not None else ""
+                                }
+                                # if the type is "select_one" or "select_multiple", add the choices
+                                match = re.match(r"^(select_one|select_multiple) (.+)$", type_)
+                                if match:
+                                    list_name = match.group(2)
+                                    # loop through all rows on the choices sheet with a matching list_name
+                                    for choice in choices_data:
+                                        if choice[choices_columns['list_name']] == list_name:
+                                            # add options one by one
+                                            choice_label = str(choice[choices_columns[f"label:{language}"]]).strip() \
+                                                if (f"label:{language}" in choices_columns and
+                                                    choice[choices_columns[f"label:{language}"]] is not None) else ""
+                                            if not choice_label:
+                                                # use default language label if translated label missing
+                                                choice_label = str(choice[choices_columns['label']]).strip()
+                                            item["options"].append({
+                                                "label": choice_label,
+                                                "value": str(choice[choices_columns['value']]).strip()
+                                                if f"hint:{language}" in choices_columns
+                                                   and choice[choices_columns['value']] is not None else ""
+                                            })
+                                questions[name].append(item)
+
+                    # update our output data with the new questions (translations for the current field)
+                    output_data[module]["questions"].update(questions)
+
+        # return structured data
+        return clean_data(output_data)
+
+    # otherwise, fallback to unstructured processing
+    loader = UnstructuredExcelLoader(file_path, mode="elements")
+    data = loader.load()
+    content_list = []
+    for page in data:
+        if 'text_as_html' in page.metadata:
+            html_content = page.metadata['text_as_html']
+        else:
+            html_content = page.page_content
+        if 'page_name' in page.metadata:
+            page_name = page.metadata['page_name']
+            content_list.append('<h1>' + page_name + '</h1>\n' + html_content)
+
+    # split and return the processed content
+    split_content = []
+    for content in content_list:
+        split_content.extend(split(clean_whitespace(content), splitter))
+    return split_content
 
 
 def read_local_html(path: str, splitter: Callable = split_langchain) -> list:
@@ -1307,7 +1412,7 @@ def get_data_from_url(url: str, splitter: Callable = split_langchain) -> list[st
     :type url: str
     :param splitter: Function or method used for processing the data.
     :type splitter: Callable
-    :return: Processed data based on file extension or None if an error occurs.
+    :return: A list of strings for raw text content, or a dictionary for structured content (needs no extra parsing).
     :rtype: list[str] | dict | None
     """
 
@@ -1473,36 +1578,29 @@ async def extract_data(chain: Runnable, url: str, replacement_examples: List[Tup
             )
 
     # get data from the URL
-    docs = get_data_from_url(url)
+    read_data = get_data_from_url(url)
 
-    # process data
-    results = []
-    if isinstance(docs, list):
-        # process list of documents asynchronously
-        if docs:
-            # track our LLM usage with an OpenAI callback
-            with get_openai_callback() as cb:
-                # create a list of tasks, then execute them asynchronously
-                tasks = [chain.ainvoke({"text": page, "examples": example_messages}) for page in docs]
-                results = await asyncio.gather(*tasks)
+    # if a dict is returned, that means the data was read as structured and we can return it straight away
+    if isinstance(read_data, dict):
+        return read_data
 
-                # report LLM usage
-                parser_logger.log(logging.INFO, f"Tokens consumed:: {cb.total_tokens}")
-                parser_logger.log(logging.INFO, f"  Prompt tokens: {cb.prompt_tokens}")
-                parser_logger.log(logging.INFO, f"  Completion tokens: {cb.completion_tokens}")
-                parser_logger.log(logging.INFO, f"Successful Requests: {cb.successful_requests}")
-                parser_logger.log(logging.INFO, f"Cost: ${cb.total_cost}")
-    else:
-        # process single document, tracking our LLM usage with an OpenAI callback
-        with get_openai_callback() as cb:
-            results = [chain.ainvoke({"text": docs, "examples": example_messages})]
+    # if it's an empty list, just return an empty dict
+    if not read_data:
+        return {}
 
-            # report LLM usage
-            parser_logger.log(logging.INFO, f"Tokens consumed:: {cb.total_tokens}")
-            parser_logger.log(logging.INFO, f"  Prompt tokens: {cb.prompt_tokens}")
-            parser_logger.log(logging.INFO, f"  Completion tokens: {cb.completion_tokens}")
-            parser_logger.log(logging.INFO, f"Successful Requests: {cb.successful_requests}")
-            parser_logger.log(logging.INFO, f"Cost: ${cb.total_cost}")
+    # otherwise, we have to process a content list
+    # process list asynchronously, and track our LLM usage with an OpenAI callback
+    with get_openai_callback() as cb:
+        # create a list of tasks, then execute them asynchronously
+        tasks = [chain.ainvoke({"text": page, "examples": example_messages}) for page in read_data]
+        results = await asyncio.gather(*tasks)
+
+        # report LLM usage
+        parser_logger.log(logging.INFO, f"Tokens consumed:: {cb.total_tokens}")
+        parser_logger.log(logging.INFO, f"  Prompt tokens: {cb.prompt_tokens}")
+        parser_logger.log(logging.INFO, f"  Completion tokens: {cb.completion_tokens}")
+        parser_logger.log(logging.INFO, f"Successful Requests: {cb.successful_requests}")
+        parser_logger.log(logging.INFO, f"Cost: ${cb.total_cost}")
 
     # organize questions by module and question ID
     grouped_output = {}
@@ -1617,8 +1715,8 @@ def _add_header_to_first_empty_cell(worksheet, header):
         worksheet.cell(row=1, column=max_column + 1, value=header)
 
 
-def _get_columns_from_headers(worksheet) -> dict:
-    return {cell.value: i + 1 for i, cell in enumerate(worksheet[1])
+def _get_columns_from_headers(worksheet, index_boost: int = 0) -> dict:
+    return {cell.value: i + index_boost for i, cell in enumerate(worksheet[1])
             if cell.value is not None and cell.value.strip() != ''}
 
 
@@ -1639,11 +1737,11 @@ def output_parsed_data_to_xlsform(data: dict, form_id: str, form_title: str, out
     # load the workbook
     wb = load_workbook(empty_form_path)
     survey_ws = wb['survey']
-    survey_columns = _get_columns_from_headers(survey_ws)
+    survey_columns = _get_columns_from_headers(survey_ws, 1)
     choices_ws = wb['choices']
-    choices_columns = _get_columns_from_headers(choices_ws)
+    choices_columns = _get_columns_from_headers(choices_ws, 1)
     settings_ws = wb['settings']
-    settings_columns = _get_columns_from_headers(settings_ws)
+    settings_columns = _get_columns_from_headers(settings_ws, 1)
 
     # set the 'form_title' and 'form_id' values in row 2
     settings_ws.cell(row=2, column=settings_columns['form_id'], value=form_id)

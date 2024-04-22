@@ -27,7 +27,6 @@ kor~=1.0.0
 scrapy~=2.11.1
 ipywidgets
 chromadb
-pyxform
 lxml
 requests~=2.31.0
 tqdm~=4.65.0
