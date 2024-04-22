@@ -180,12 +180,14 @@ empty JSON response of {{}}."""
                                         survey_question=EvaluationEngine.clean_whitespace(survey_question),
                                         **kwargs)
 
-    def format_result(self, result: dict | None = None) -> str:
+    def format_result(self, result: dict | None = None, minimum_importance: int = 0) -> str:
         """
         Format the evaluation result as a human-readable string.
 
         :param result: Evaluation result to format (or None to use the evaluation_result attribute).
         :type result: dict | None
+        :param minimum_importance: Minimum importance score for filtering results (defaults to 0, which doesn't filter).
+        :type minimum_importance: int
         :return: Formatted evaluation result.
         :rtype: str
         """
@@ -206,10 +208,13 @@ empty JSON response of {{}}."""
             sorted_indices = sorted(range(len(result_to_format["Severities"])),
                                     key=lambda idx: result_to_format["Severities"][idx], reverse=True)
             for i in sorted_indices:
-                formatted_result += f"Severity {result_to_format['Severities'][i]} finding (out of 5):\n\n"
-                formatted_result += f"Existing phrase: {result_to_format['Phrases'][i]}\n"
-                formatted_result += f"Recommended replacement: {result_to_format['Recommendations'][i]}\n"
-                formatted_result += f"Explanation: {result_to_format['Explanations'][i]}\n\n"
+                severity = result_to_format['Severities'][i]
+                # only report findings with severity greater than or equal to minimum_importance
+                if severity >= minimum_importance:
+                    formatted_result += f"Severity {severity} finding (out of 5):\n\n"
+                    formatted_result += f"{result_to_format['Explanations'][i]}\n\n"
+                    formatted_result += f"Recommend replacing: {result_to_format['Phrases'][i]}\n"
+                    formatted_result += f"          With this: {result_to_format['Recommendations'][i]}\n\n"
         except Exception as e:
             # include exception in returned results, with raw JSON results
             formatted_result = (f"Error occurred formatting result: {str(e)}\n\n"
@@ -465,12 +470,14 @@ from 1 to 5, based on the strength of the recommendation (including all fields).
                                         survey_locations=survey_locations,
                                         survey_excerpt=EvaluationEngine.clean_whitespace(survey_excerpt), **kwargs)
 
-    def format_result(self, result: dict | None = None) -> str:
+    def format_result(self, result: dict | None = None, minimum_importance: int = 0) -> str:
         """
         Format the evaluation result as a human-readable string.
 
         :param result: Evaluation result to format (or None to use the evaluation_result attribute).
         :type result: dict | None
+        :param minimum_importance: Minimum importance score for filtering results (defaults to 0, which doesn't filter).
+        :type minimum_importance: int
         :return: Formatted evaluation result.
         :rtype: str
         """
@@ -487,6 +494,11 @@ from 1 to 5, based on the strength of the recommendation (including all fields).
 
         # format and return result
         try:
+            if minimum_importance > 0 and (not result_to_format["Recommendation"]
+                                           or result_to_format["Recommendation strength"] < minimum_importance):
+                # filter this result since as not important enough
+                return ""
+
             if len(result_to_format["Measuring"]) == 0:
                 measuring_str = ""
             elif len(result_to_format["Measuring"]) == 1:
@@ -746,12 +758,14 @@ response of {{}}."""
                                         survey_locations=survey_locations,
                                         survey_excerpt=EvaluationEngine.clean_whitespace(survey_excerpt), **kwargs)
 
-    def format_result(self, result: dict | None = None) -> str:
+    def format_result(self, result: dict | None = None, minimum_importance: int = 0) -> str:
         """
         Format the evaluation result as a human-readable string.
 
         :param result: Evaluation result to format (or None to use the evaluation_result attribute).
         :type result: dict | None
+        :param minimum_importance: Minimum importance score for filtering results (defaults to 0, which doesn't filter).
+        :type minimum_importance: int
         :return: Formatted evaluation result.
         :rtype: str
         """
@@ -772,10 +786,13 @@ response of {{}}."""
             sorted_indices = sorted(range(len(result_to_format["Severities"])),
                                     key=lambda idx: result_to_format["Severities"][idx], reverse=True)
             for i in sorted_indices:
-                formatted_result += f"Severity {result_to_format['Severities'][i]} finding (out of 5):\n\n"
-                formatted_result += f"Existing phrase: {result_to_format['Phrases'][i]}\n"
-                formatted_result += f"Recommended replacement: {result_to_format['Recommendations'][i]}\n"
-                formatted_result += f"Explanation: {result_to_format['Explanations'][i]}\n\n"
+                severity = result_to_format['Severities'][i]
+                # only report findings with severity greater than or equal to minimum_importance
+                if severity >= minimum_importance:
+                    formatted_result += f"Severity {severity} finding (out of 5):\n\n"
+                    formatted_result += f"{result_to_format['Explanations'][i]}\n\n"
+                    formatted_result += f"Recommend replacing: {result_to_format['Phrases'][i]}\n"
+                    formatted_result += f"          With this: {result_to_format['Recommendations'][i]}\n\n"
         except Exception as e:
             # include exception in returned results, with raw JSON results
             formatted_result = (f"Error occurred formatting result: {str(e)}\n\n"
@@ -968,12 +985,14 @@ of {{}}."""
                                         survey_locations=survey_locations,
                                         survey_excerpt=EvaluationEngine.clean_whitespace(survey_excerpt), **kwargs)
 
-    def format_result(self, result: dict | None = None) -> str:
+    def format_result(self, result: dict | None = None, minimum_importance: int = 0) -> str:
         """
         Format the evaluation result as a human-readable string.
 
         :param result: Evaluation result to format (or None to use the evaluation_result attribute).
         :type result: dict | None
+        :param minimum_importance: Minimum importance score for filtering results (defaults to 0, which doesn't filter).
+        :type minimum_importance: int
         :return: Formatted evaluation result.
         :rtype: str
         """
@@ -994,10 +1013,13 @@ of {{}}."""
             sorted_indices = sorted(range(len(result_to_format["Severities"])),
                                     key=lambda idx: result_to_format["Severities"][idx], reverse=True)
             for i in sorted_indices:
-                formatted_result += f"Severity {result_to_format['Severities'][i]} finding (out of 5):\n\n"
-                formatted_result += f"Existing phrase: {result_to_format['Phrases'][i]}\n"
-                formatted_result += f"Recommended replacement: {result_to_format['Recommendations'][i]}\n"
-                formatted_result += f"Explanation: {result_to_format['Explanations'][i]}\n\n"
+                severity = result_to_format['Severities'][i]
+                # only report findings with severity greater than or equal to minimum_importance
+                if severity >= minimum_importance:
+                    formatted_result += f"Severity {severity} finding (out of 5):\n\n"
+                    formatted_result += f"{result_to_format['Explanations'][i]}\n\n"
+                    formatted_result += f"Recommend replacing: {result_to_format['Phrases'][i]}\n"
+                    formatted_result += f"          With this: {result_to_format['Recommendations'][i]}\n\n"
         except Exception as e:
             # include exception in returned results, with raw JSON results
             formatted_result = (f"Error occurred formatting result: {str(e)}\n\n"
