@@ -1542,6 +1542,25 @@ def clean_data(data: dict) -> dict:
     return cleaned_data
 
 
+async def _invoke_task(func: Callable, param_dict: dict) -> dict:
+    """
+    Asynchronously invoke a function with parameters, capturing and returning any exceptions that occur.
+
+    :param func: Task invocation function.
+    :type func: Callable
+    :param param_dict: Parameter dict to pass to the function.
+    :type param_dict: dict
+    :return: A dict with result ("success" or "error"), error (if result is "error"), and response (a dict).
+    :rtype: dict
+    """
+
+    try:
+        return {"result": "success", "error": None, "response": await func(param_dict)}
+    except Exception as e:
+        parser_logger.error(f"Task triggered error: {str(e)}")
+        return {"result": "error", "error": f"Task triggered error: {str(e)}", "response": None}
+
+
 async def extract_data(chain: Runnable, url: str, replacement_examples: List[Tuple[str, List[Question]]] = None,
                        additional_examples: List[Tuple[str, List[Question]]] = None) -> dict:
     """
@@ -1555,7 +1574,7 @@ async def extract_data(chain: Runnable, url: str, replacement_examples: List[Tup
     :type replacement_examples: List[Tuple[str, List[Question]]]
     :param additional_examples: Additional examples to use (if any).
     :type additional_examples: List[Tuple[str, List[Question]]]
-    :return: Dictionary of questions, organized by module.
+    :return: A dict with modules (a dict with questions organized by module) and errors (a list of errors, if any).
     :rtype: dict
     """
 
@@ -1592,7 +1611,8 @@ async def extract_data(chain: Runnable, url: str, replacement_examples: List[Tup
     # process list asynchronously, and track our LLM usage with an OpenAI callback
     with get_openai_callback() as cb:
         # create a list of tasks, then execute them asynchronously
-        tasks = [chain.ainvoke({"text": page, "examples": example_messages}) for page in read_data]
+        tasks = [_invoke_task(chain.ainvoke,
+                              {"text": page, "examples": example_messages}) for page in read_data]
         results = await asyncio.gather(*tasks)
 
         # report LLM usage
@@ -1603,12 +1623,18 @@ async def extract_data(chain: Runnable, url: str, replacement_examples: List[Tup
         parser_logger.log(logging.INFO, f"Cost: ${cb.total_cost}")
 
     # organize questions by module and question ID
-    grouped_output = {}
+    errors_output = []
+    modules_output = {}
     question_module = {}
     unknown_module_count = 0
     unknown_id_count = 0
-    for module_list in results:
-        for module in module_list.modules:
+    for task_result in results:
+        # if the task failed, add the error to the errors list and continue
+        if task_result['result'] == 'error':
+            errors_output.append(task_result['error'])
+            continue
+
+        for module in task_result['response'].modules:
             # construct module name from whatever details we have, defaulting to auto-naming as necessary
             if module.module_name == module.module_title:
                 module_key = module.module_name
@@ -1635,12 +1661,12 @@ async def extract_data(chain: Runnable, url: str, replacement_examples: List[Tup
 
                     if question_id in question_module:
                         # if we've seen the question ID before, add this version to the same module as before
-                        question_list = grouped_output[question_module[question_id]].setdefault('questions', {})
+                        question_list = modules_output[question_module[question_id]].setdefault('questions', {})
                     else:
                         # otherwise, add it to the current module, adding the module to the output as needed
-                        if module_key not in grouped_output:
+                        if module_key not in modules_output:
                             # add module to output, ignoring module title if same as the module name
-                            grouped_output[module_key] = {
+                            modules_output[module_key] = {
                                 "module_name": module.module_name if module.module_name else "",
                                 "module_title": module.module_title if module.module_title
                                                                        and module.module_title != module.module_name
@@ -1648,7 +1674,7 @@ async def extract_data(chain: Runnable, url: str, replacement_examples: List[Tup
                                 "module_intro": module.module_intro if module.module_intro else "",
                                 "questions": {}
                             }
-                        question_list = grouped_output[module_key].setdefault('questions', {})
+                        question_list = modules_output[module_key].setdefault('questions', {})
                         question_module[question_id] = module_key
 
                     # parse and organize options, if any
@@ -1676,8 +1702,8 @@ async def extract_data(chain: Runnable, url: str, replacement_examples: List[Tup
                         'instructions': question.instructions if question.instructions else '',
                     })
 
-    # return cleaned-up version of the data
-    return clean_data(grouped_output)
+    # return cleaned-up version of the data, along with any errors
+    return {"modules": clean_data(modules_output), "errors": errors_output}
 
 
 async def extract_data_from_directory(path_to_ingest: str, chain: LLMChain) -> list:
@@ -1688,7 +1714,7 @@ async def extract_data_from_directory(path_to_ingest: str, chain: LLMChain) -> l
     :type path_to_ingest: str
     :param chain: The AI prediction chain to be used.
     :type chain: LLMChain
-    :return: A list of structured data from all processed files.
+    :return: A list of data extraction output from all processed files.
     :rtype: list
     """
 

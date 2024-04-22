@@ -340,8 +340,10 @@ Assistant:"""
                     # wait before retrying
                     await asyncio.sleep(5)
                 else:
-                    # maximum attempts reached, raise exception
-                    raise RuntimeError(f"Max retries reached on question. Last error: {str(e)}") from e
+                    # maximum attempts reached, return error
+                    result_dict["result"] = "error"
+                    result_dict["error"] = f"Max retries reached on question. Last error: {str(e)}"
+                    return result_dict
 
         # get prompt and response, record in history
         prompt = result["question"].strip()
@@ -474,8 +476,10 @@ Assistant:"""
                         # wait before retrying
                         await asyncio.sleep(5)
                     else:
-                        # maximum attempts reached, raise exception
-                        raise RuntimeError(f"Max retries reached asking follow-up. Last error: {str(e)}") from e
+                        # maximum attempts reached, return error
+                        result_dict["result"] = "error"
+                        result_dict["error"] = f"Max retries reached on question. Last error: {str(e)}"
+                        return result_dict
 
             # parse result as JSON
             json_response = result["answer"].strip()
