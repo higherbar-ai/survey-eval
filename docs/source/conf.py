@@ -16,7 +16,7 @@ sys.path.insert(0, os.path.abspath('../../src'))
 project = 'surveyeval'
 copyright = '2024, Higher Bar AI, PBC'
 author = 'Higher Bar AI, PBC'
-release = '0.1.9'
+release = '0.1.10'
 
 
 # -- General configuration ---------------------------------------------------
