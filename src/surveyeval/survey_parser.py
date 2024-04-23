@@ -1830,19 +1830,19 @@ def output_parsed_data_to_xlsform(data: dict, form_id: str, form_title: str, out
                 else:
                     label_column = 'label'
                     hint_column = 'hint'
+                    # if there are options, we'll need to add them to the choices sheet (all at the end)
+                    #   (we let the primary language govern whether there are choices)
+                    if translation['options']:
+                        has_choices = True
 
                 # add the question to the survey sheet
                 survey_ws.cell(row=survey_row_counter, column=survey_columns['type'],
-                               value='text' if not translation['options'] else 'select_one ' + safe_question_id)
+                               value='text' if not has_choices else 'select_one ' + safe_question_id)
                 survey_ws.cell(row=survey_row_counter, column=survey_columns['name'], value=safe_question_id)
                 survey_ws.cell(row=survey_row_counter, column=survey_columns[label_column],
                                value=translation['question'])
                 survey_ws.cell(row=survey_row_counter, column=survey_columns[hint_column],
                                value=translation['instructions'])
-
-                # if there are options, we'll need to add them to the choices sheet (all at the end)
-                if translation['options']:
-                    has_choices = True
 
             # increment survey row when we're done adding all translations
             survey_row_counter += 1
