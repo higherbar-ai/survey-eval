@@ -120,7 +120,7 @@ Temporary Items
 /build/
 /src/.scrapy/
 
-/src/__pycache__/
+/src/surveyeval/__pycache__/
 
 # Sphinx documentation
 docs/build/
