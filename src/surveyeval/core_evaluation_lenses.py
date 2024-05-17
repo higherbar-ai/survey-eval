@@ -75,7 +75,8 @@ Respond in JSON format with all of the following fields:
 * Phrases: a list containing all phrases from the excerpt that pre-testing or piloting is likely to identify
 as problematic (each phrase should be an exact quote)
 
-* Number of phrases: the exact number of phrases in Phrases
+* Number of phrases: the exact number of phrases in Phrases [ Note that this key must be exactly "Number of phrases", 
+with exactly that capitalization and spacing ]
 
 * Recommendations: a list containing suggested replacement phrases, one for each of the phrases in Phrases (in the same
 order as Phrases; each replacement phrase should be an exact quote that can exactly replace the corresponding phrase in
@@ -646,7 +647,8 @@ Respond in JSON format with all of the following fields:
 the translation does not adequately match the meaning in the primary language (each phrase should be an exact quote 
 from the translated language)
 
-* Number of phrases: the exact number of phrases in Phrases
+* Number of phrases: the exact number of phrases in Phrases [ Note that this key must be exactly "Number of phrases", 
+with exactly that capitalization and spacing ]
 
 * Recommendations: a list containing suggested replacement phrases, one for each of the phrases in Phrases (in the same
 order as Phrases; each replacement phrase should be an exact quote that can exactly replace the corresponding phrase in
@@ -892,7 +894,8 @@ Respond in JSON format with all of the following fields:
 * Phrases: a list containing all problematic phrases from the excerpt that you found in your review (each phrase should
 be an exact quote from the excerpt)
 
-* Number of phrases: the exact number of phrases in Phrases
+* Number of phrases: the exact number of phrases in Phrases [ Note that this key must be exactly "Number of phrases", 
+with exactly that capitalization and spacing ]
 
 * Recommendations: a list containing suggested replacement phrases, one for each of the phrases in Phrases (in the same
 order as Phrases; each replacement phrase should be an exact quote that can exactly replace the corresponding phrase in
