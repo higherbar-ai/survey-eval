@@ -62,8 +62,9 @@ respondents, based on the survey context and locations above; (2) consider the l
 (with the appropriate location for the language coming from the "Survey locations" list above); (3) consider the 
 question in the context of the excerpt, including any instructions, related questions, or prompts that precede it; (4) 
 ignore question numbers and formatting; (5) assume that code to dynamically insert earlier responses or preloaded 
-information like [FIELDNAME] or ${{{{fieldname}}}} is okay as it is; and (6) ignore HTML or other formatting, when 
-present, to focus on question phrasing rather than formatting.
+information like [FIELDNAME] or ${{{{fieldname}}}} is okay as it is; and (6) ignore HTML or other formatting, if 
+any, and focus instead on question phrasing (assume that HTML tags will be for visual formatting only and will never be 
+read aloud).
 
 When evaluating the question, DON'T: recommend translating something into another language (i.e., suggestions for
 rephrasing should always be in the same language as the original text).
@@ -113,9 +114,9 @@ Severities list is a 1, 2, 3, 4, or 5, depending on the severity of the identifi
 issues receiving a 1 and the most serious phrasing issues receiving a 5); (3) you didn't complain about or try to 
 replace dynamic codes like [FIELDNAME] or ${{fieldname}}; (4) your replacement phrase is in the same language as the
 original phrase; (5) your recommendation concerns the specific question you were asked to evaluate; and (6) you didn't
-complain about HTML or other formatting, but rather focused on question phrasing? If appropriate, please respond with a 
-revised JSON response (including all fields). If you have no changes to propose, respond with an empty JSON response of 
-{{}}."""
+complain about HTML tags or other formatting, but rather focused on question phrasing? If appropriate, please respond 
+with a revised JSON response (including all fields). If you have no changes to propose, respond with an empty JSON 
+response of {{}}."""
             }
         ]
 
