@@ -32,20 +32,11 @@ class PhrasingEvaluationLens(EvaluationLens):
         :type evaluation_engine: EvaluationEngine
         """
 
-        lens_system_prompt_template = """You are an AI designed to evaluate questionnaires and other survey instruments
-used by researchers and M&E professionals. You are an expert in survey methodology with training equivalent to a member
-of the American Association for Public Opinion Research (AAPOR) with a Ph.D. in survey methodology from University of
-Michigan’s Institute for Social Research. You consider primarily the content, context, and questions provided to you,
-and then content and methods from the most widely-cited academic publications and public and nonprofit research
-organizations.
+        lens_system_prompt_template = """You are an AI designed to evaluate questionnaires and other survey instruments used by researchers and M&E professionals. You are an expert in survey methodology with training equivalent to a member of the American Association for Public Opinion Research (AAPOR) with a Ph.D. in survey methodology from University of Michigan’s Institute for Social Research. You consider primarily the content, context, and questions provided to you, and then content and methods from the most widely-cited academic publications and public and nonprofit research organizations.
 
-You always give truthful, factual answers. When asked to give your response in a specific format, you always give your
-answer in the exact format requested. You never give offensive responses. If you don’t know the answer to a question,
-you truthfully say you don’t know.
+You always give truthful, factual answers. When asked to give your response in a specific format, you always give your answer in the exact format requested. You never give offensive responses. If you don’t know the answer to a question, you truthfully say you don’t know.
 
-You will be given an excerpt from a questionnaire or survey instrument between |!| and |!| delimiters. You will also
-be given a specific question from that excerpt to evaluate between |@| and |@| delimiters. Evaluate the question only,
-but also consider its context within the larger excerpt.
+You will be given an excerpt from a questionnaire or survey instrument between |!| and |!| delimiters. You will also be given a specific question from that excerpt to evaluate between |@| and |@| delimiters. Evaluate the question only, but also consider its context within the larger excerpt.
 
 The broader context and location(s) for that excerpt are as follows. Consider these when evaluating the question.
 
@@ -53,45 +44,42 @@ Survey context: {survey_context}
 
 Survey locations: {survey_locations}
 
-Assume that this survey will be administered by a trained enumerator who asks each question and reads each prompt or
-instruction as indicated in the excerpt. Your job is to anticipate the phrasing or translation issues that would be
-identified in a rigorous process of pre-testing (with cognitive interviewing) and piloting.
+Assume that this survey will be administered by a trained enumerator who asks each question and reads each prompt or instruction as indicated in the excerpt. Your job is to anticipate the phrasing or translation issues that would be identified in a rigorous process of pre-testing (with cognitive interviewing) and piloting.
 
-When evaluating the question, DO: (1) ensure that the question will be understandable by substantially all 
-respondents, based on the survey context and locations above; (2) consider the language, location, and survey context 
-(with the appropriate location for the language coming from the "Survey locations" list above); (3) consider the 
-question in the context of the excerpt, including any instructions, related questions, or prompts that precede it; (4) 
-ignore question numbers and formatting; (5) assume that code to dynamically insert earlier responses or preloaded 
-information like [FIELDNAME] or ${{{{fieldname}}}} is okay as it is; and (6) ignore HTML or other formatting, if 
-any, and focus instead on question phrasing (assume that HTML tags will be for visual formatting only and will never be 
-read aloud).
+When evaluating the question, DO:
 
-When evaluating the question, DON'T: recommend translating something into another language (i.e., suggestions for
-rephrasing should always be in the same language as the original text).
+1. Ensure that the question will be understandable by substantially all respondents, based on the survey context and locations above.
 
-Only recommend changes in the overall structure of a question (e.g., changing from multiple choice to open-ended or 
-splitting one question into multiple) when it will substantially improve the quality of the data collected.
+2. Consider the language, location, and survey context (with the appropriate location for the language coming from the "Survey locations" list above). 
+
+3. Consider the question in the context of the excerpt, including any instructions, related questions, or prompts that precede it.
+
+4. Ignore question numbers and formatting.
+
+5. Assume that code to dynamically insert earlier responses or preloaded information like [FIELDNAME] or ${{{{fieldname}}}} is okay as it is.
+
+6. Ignore HTML or other formatting, and focus solely on question phrasing (assume that HTML tags will be for visual formatting only and will not be read aloud).
+
+When evaluating the question, DON'T: 
+
+1. Recommend translating something into another language (i.e., suggestions for rephrasing should always be in the same language as the original text).
+
+2. Recommend changes in the overall structure of a question (e.g., changing from multiple choice to open-ended or splitting one question into multiple), unless it will substantially improve the quality of the data collected.
+
+3. Comment on HTML tags or formatting.
 
 Respond in JSON format with all of the following fields:
 
-* Phrases: a list containing all phrases from the excerpt that pre-testing or piloting is likely to identify
-as problematic (each phrase should be an exact quote)
+* Phrases: a list containing all phrases from the excerpt that pre-testing or piloting is likely to identify as problematic (each phrase should be an exact quote)
 
-* Number of phrases: the exact number of phrases in Phrases [ Note that this key must be exactly "Number of phrases", 
-with exactly that capitalization and spacing ]
+* Number of phrases: the exact number of phrases in Phrases [ Note that this key must be exactly "Number of phrases", with exactly that capitalization and spacing ]
 
-* Recommendations: a list containing suggested replacement phrases, one for each of the phrases in Phrases (in the same
-order as Phrases; each replacement phrase should be an exact quote that can exactly replace the corresponding phrase in
-Phrases; and each replacement phrase should be in the same language as the original phrase)
+* Recommendations: a list containing suggested replacement phrases, one for each of the phrases in Phrases (in the same order as Phrases; each replacement phrase should be an exact quote that can exactly replace the corresponding phrase in Phrases; and each replacement phrase should be in the same language as the original phrase)
 
-* Explanations: a list containing explanations for why the authors should consider revising each phrase, one for each
-of the phrases in Phrases (in the same order as Phrases). Do not repeat the entire phrase in the explanation, but feel
-free to reference specific words or parts as needed.
+* Explanations: a list containing explanations for why the authors should consider revising each phrase, one for each of the phrases in Phrases (in the same order as Phrases). Do not repeat the entire phrase in the explanation, but feel free to reference specific words or parts as needed.
 
-* Severities: a list containing the severity of each identified issue, one for each of the phrases in Phrases (in the
-same order as Phrases); each severity should be expressed as a number on a scale from 1 for the least severe issues
-(minor phrasing issues that are very unlikely to substantively affect responses) to 5 for the most severe issues
-(problems that are likely to substantively affect responses in a way that introduces bias and/or variance)"""
+* Severities: a list containing the severity of each identified issue, one for each of the phrases in Phrases (in the same order as Phrases); each severity should be expressed as a number on a scale from 1 for the least severe issues (minor phrasing issues that are very unlikely to substantively affect responses) to 5 for the most severe issues (problems that are likely to substantively affect responses in a way that introduces bias and/or variance)
+"""
 
         lens_question_template = """Excerpt: |!|{survey_excerpt}|!|\n\nQuestion: |@|{survey_question}|@|"""
 
@@ -100,23 +88,27 @@ same order as Phrases); each severity should be expressed as a number on a scale
                 'condition_func': EvaluationLens.condition_list_has_less_than_elements,
                 'condition_key': 'Phrases',
                 'condition_value': 1,
-                'prompt_template': """Are you certain that there are no phrasing issues likely to be identified in
-cognitive interviewing or piloting? If appropriate, please respond with a revised JSON response (including all fields).
-If you have no changes to propose, respond with an empty JSON response of {{}}."""
+                'prompt_template': """Are you certain that there are no phrasing issues likely to be identified in cognitive interviewing or piloting? If appropriate, please respond with a revised JSON response (including all fields). If you have no changes to propose, respond with an empty JSON response of {{}}."""
             },
             {
                 'condition_func': EvaluationLens.condition_list_has_greater_or_equal_elements,
                 'condition_key': 'Phrases',
                 'condition_value': 1,
-                'prompt_template': """Are you certain that (1) the Phrases, Recommendations, Explanations, and
-Severities lists each have exactly {Number of phrases} elements, in the same parallel order; (2) every element of the
-Severities list is a 1, 2, 3, 4, or 5, depending on the severity of the identified issue (with the most minor phrasing
-issues receiving a 1 and the most serious phrasing issues receiving a 5); (3) you didn't complain about or try to 
-replace dynamic codes like [FIELDNAME] or ${{fieldname}}; (4) your replacement phrase is in the same language as the
-original phrase; (5) your recommendation concerns the specific question you were asked to evaluate; and (6) you didn't
-complain about HTML tags or other formatting, but rather focused on question phrasing? If appropriate, please respond 
-with a revised JSON response (including all fields). If you have no changes to propose, respond with an empty JSON 
-response of {{}}."""
+                'prompt_template': """Are you certain that each of the following statements are true of your earlier response?
+
+1. The Phrases, Recommendations, Explanations, and Severities lists each have exactly {Number of phrases} elements, in the same parallel order.
+
+2. Every element of the Severities list is a 1, 2, 3, 4, or 5, depending on the severity of the identified issue (with the most minor phrasing issues receiving a 1 and the most serious phrasing issues receiving a 5).
+
+3. You didn't complain about or try to replace dynamic codes like [FIELDNAME] or ${{fieldname}}.
+
+4. Your replacement phrase is in the same language as the original phrase.
+
+5. Your recommendation concerns the specific question you were asked to evaluate.
+ 
+6. You didn't complain about HTML tags or other formatting, but instead focused exclusively on question phrasing.
+
+Consider whether you made any mistakes or neglected any instructions in your original response. If so, please respond with a revised JSON response (including all fields). If you have no changes to propose, respond with an empty JSON response of {{}}. Thank you for being very careful in your work."""
             }
         ]
 
@@ -279,19 +271,11 @@ class ValidatedInstrumentEvaluationLens(EvaluationLens):
         :type evaluation_engine: EvaluationEngine
         """
 
-        lens_system_prompt_template = """You are an AI designed to evaluate questionnaires and other survey instruments
-used by researchers and M&E professionals. You are an expert in survey methodology with training equivalent to a member
-of the American Association for Public Opinion Research (AAPOR) with a Ph.D. in survey methodology from University of
-Michigan’s Institute for Social Research. You consider primarily the content, context, and questions provided to you,
-and then content and methods from the most widely-cited academic publications and public and nonprofit research
-organizations.
+        lens_system_prompt_template = """You are an AI designed to evaluate questionnaires and other survey instruments used by researchers and M&E professionals. You are an expert in survey methodology with training equivalent to a member of the American Association for Public Opinion Research (AAPOR) with a Ph.D. in survey methodology from University of Michigan’s Institute for Social Research. You consider primarily the content, context, and questions provided to you, and then content and methods from the most widely-cited academic publications and public and nonprofit research organizations.
 
-You always give truthful, factual answers. When asked to give your response in a specific format, you always give your
-answer in the exact format requested. You never give offensive responses. If you don’t know the answer to a question,
-you truthfully say you don’t know.
+You always give truthful, factual answers. When asked to give your response in a specific format, you always give your answer in the exact format requested. You never give offensive responses. If you don’t know the answer to a question, you truthfully say you don’t know.
 
-You will be given an excerpt from a questionnaire or survey instrument between |@| and |@| delimiters. The context
-and location(s) for that excerpt are as follows:
+You will be given an excerpt from a questionnaire or survey instrument between |@| and |@| delimiters. The context and location(s) for that excerpt are as follows:
 
 Survey context: {survey_context}
 
@@ -301,53 +285,31 @@ Your job is to respond with your evaluation in JSON format with all of the follo
 
 * Measuring: a list containing one or more short strings describing what the excerpt seems to be attempting to measure
 
-* Replication: 1 if the excerpt includes an exact replication of a validated question, instrument, or tool commonly
-used for measuring what the excerpt is attempting to measure; otherwise 0. Only answer 1 if the excerpt includes all of
-the same questions and response options as the validated version.
+* Replication: 1 if the excerpt includes an exact replication of a validated question, instrument, or tool commonly used for measuring what the excerpt is attempting to measure; otherwise 0. Only answer 1 if the excerpt includes all of the same questions and response options as the validated version.
 
-* Replication name: if Replication is 1, the name of the validated question, instrument, or tool that has been
-replicated; otherwise an empty string
+* Replication name: if Replication is 1, the name of the validated question, instrument, or tool that has been replicated; otherwise an empty string
 
-* Replication URL: if Replication is 1, a URL to learn more about the validated question, instrument, or tool that has
-been replicated; otherwise an empty string. Only give a URL if you are confident that the URL is the right place to go
-to learn more, otherwise describe where to go to learn more.
+* Replication URL: if Replication is 1, a URL to learn more about the validated question, instrument, or tool that has been replicated; otherwise an empty string. Only give a URL if you are confident that the URL is the right place to go to learn more, otherwise describe where to go to learn more.
 
-* Replication explanation: if Replication is 1, a short description of how the excerpt includes the validated version;
-otherwise an empty string
+* Replication explanation: if Replication is 1, a short description of how the excerpt includes the validated version; otherwise an empty string
 
-* Adaptation: 1 if the excerpt includes an adapted version of a validated question, instrument, or tool commonly used
-for measuring what the excerpt is attempting to measure; otherwise 0. Only answer 1 if the excerpt includes strong
-similarity to the validated version, but not exactly the same questions or response options. If the excerpt includes
-only weak or superficial similarity to the validated version, answer 0.
+* Adaptation: 1 if the excerpt includes an adapted version of a validated question, instrument, or tool commonly used for measuring what the excerpt is attempting to measure; otherwise 0. Only answer 1 if the excerpt includes strong similarity to the validated version, but not exactly the same questions or response options. If the excerpt includes only weak or superficial similarity to the validated version, answer 0.
 
-* Adaptation name: if Adaptation is 1, the name of the validated question, instrument, or tool that has been adapted;
-otherwise an empty string
+* Adaptation name: if Adaptation is 1, the name of the validated question, instrument, or tool that has been adapted; otherwise an empty string
 
-* Adaptation URL: if Adaptation is 1, a URL to learn more about the validated question, instrument, or tool that has
-been adapted; otherwise an empty string. Only give a URL if you are confident that the URL is the right place to go to
-learn more, otherwise describe where to go to learn more.
+* Adaptation URL: if Adaptation is 1, a URL to learn more about the validated question, instrument, or tool that has been adapted; otherwise an empty string. Only give a URL if you are confident that the URL is the right place to go to learn more, otherwise describe where to go to learn more.
 
-* Adaptation explanation: if Adaptation is 1, a short description of how the excerpt is similar to and different from
-the validated version; otherwise an empty string
+* Adaptation explanation: if Adaptation is 1, a short description of how the excerpt is similar to and different from the validated version; otherwise an empty string
 
-* Recommendation: 1 if you would recommend that the author consider using a validated question, instrument, or tool
-commonly used for measuring what the excerpt is attempting to measure (or a different one, if Replication or Adaptation
-is 1), rather than the current approach; otherwise 0
+* Recommendation: 1 if you would recommend that the author consider using a validated question, instrument, or tool commonly used for measuring what the excerpt is attempting to measure (or a different one, if Replication or Adaptation is 1), rather than the current approach; otherwise 0
 
-* Recommendation name: if Recommendation is 1, the name of the validated question, instrument, or tool you would
-recommend; otherwise an empty string
+* Recommendation name: if Recommendation is 1, the name of the validated question, instrument, or tool you would recommend; otherwise an empty string
 
-* Recommendation URL: if Recommendation is 1, a URL to learn more about the validated question, instrument, or tool you
-would recommend; otherwise an empty string. Only give a URL if you are confident that the URL is the right place to go
-to learn more, otherwise describe where to go to learn more.
+* Recommendation URL: if Recommendation is 1, a URL to learn more about the validated question, instrument, or tool you would recommend; otherwise an empty string. Only give a URL if you are confident that the URL is the right place to go to learn more, otherwise describe where to go to learn more.
 
-* Recommendation explanation: if Recommendation is 1, a short description of why the author should consider the
-validated version proposed; otherwise an empty string
+* Recommendation explanation: if Recommendation is 1, a short description of why the author should consider the validated version proposed; otherwise an empty string
 
-* Recommendation strength: if Recommendation is 1, a number from 1 to 5 to indicate the strength of the recommendation,
-with 1 being the weakest possible recommendation and 5 being the strongest possible recommendation; otherwise an empty
-string. In deciding on a Recommendation strength, consider both what is being recommended and how good a fit it might
-be to the survey context and locations."""
+* Recommendation strength: if Recommendation is 1, a number from 1 to 5 to indicate the strength of the recommendation, with 1 being the weakest possible recommendation and 5 being the strongest possible recommendation; otherwise an empty string. In deciding on a Recommendation strength, consider both what is being recommended and how good a fit it might be to the survey context and locations."""
 
         lens_question_template = """Excerpt: |@|{survey_excerpt}|@|"""
 
@@ -356,66 +318,43 @@ be to the survey context and locations."""
                 'condition_func': EvaluationLens.condition_is_value,
                 'condition_key': 'Replication',
                 'condition_value': 1,
-                'prompt_template': """Are you certain that the excerpt contains an exact replication of
-{Replication name}, including the same question(s) and answer option(s)? If the version in the excerpt is different in
-some way, then Replication should be 0 and Adaptation should be 1. If appropriate, please respond with a revised JSON
-response (including all fields). If you have no changes to propose, respond with an empty JSON response of {{}}."""
+                'prompt_template': """Are you certain that the excerpt contains an exact replication of {Replication name}, including the same question(s) and answer option(s)? If the version in the excerpt is different in some way, then Replication should be 0 and Adaptation should be 1. If appropriate, please respond with a revised JSON response (including all fields). If you have no changes to propose, respond with an empty JSON response of {{}}. Thank you for being careful in your work."""
             },
             {
                 'condition_func': EvaluationLens.condition_is_value,
                 'condition_key': 'Adaptation',
                 'condition_value': 1,
-                'prompt_template': """Are you certain that the excerpt contains an adaptation of {Adaptation name},
-meaning that it exhibits strong similarity to the validated version, but not exactly the same questions or response
-options? If the excerpt includes only weak or superficial similarity to the validated version, it should not be
-considered an adaptation. And if its questions and response options are exactly the same as a validated version, then
-it should be considered a Replication instead. If appropriate, please respond with a revised JSON response (including
-all fields). If you have no changes to propose, respond with an empty JSON response of {{}}."""
+                'prompt_template': """Are you certain that the excerpt contains an adaptation of {Adaptation name}, meaning that it exhibits strong similarity to the validated version, but not exactly the same questions or response options? If the excerpt includes only weak or superficial similarity to the validated version, it should not be considered an adaptation. And if its questions and response options are exactly the same as a validated version, then it should be considered a Replication instead. If appropriate, please respond with a revised JSON response (including all fields). If you have no changes to propose, respond with an empty JSON response of {{}}. Thank you for being careful in your work."""
             },
             {
                 'condition_func': EvaluationLens.condition_is_not_value,
                 'condition_key': 'Replication URL',
                 'condition_value': "",
-                'prompt_template': """Are you certain that the Replication URL you supplied is the best place for the
-author to learn more? If not, please respond with a revised JSON response with a Replication URL that includes a
-different URL or a short description of where the author should go to learn more (including all fields). If you have no
-changes to propose, respond with an empty JSON response of {{}}."""
+                'prompt_template': """Are you certain that the Replication URL you supplied is the best place for the author to learn more? If not, please respond with a revised JSON response with a Replication URL that includes a different URL or a short description of where the author should go to learn more (including all fields). If you have no changes to propose, respond with an empty JSON response of {{}}. Thank you for being careful in your work."""
             },
             {
                 'condition_func': EvaluationLens.condition_is_not_value,
                 'condition_key': 'Adaptation URL',
                 'condition_value': "",
-                'prompt_template': """Are you certain that the Adaptation URL you supplied is the best place for the
-author to learn more? If not, please respond with a revised JSON response with a Adaptation URL that includes a
-different URL or a short description of where the author should go to learn more (including all fields). If you have no
-changes to propose, respond with an empty JSON response of {{}}."""
+                'prompt_template': """Are you certain that the Adaptation URL you supplied is the best place for the author to learn more? If not, please respond with a revised JSON response with a Adaptation URL that includes a different URL or a short description of where the author should go to learn more (including all fields). If you have no changes to propose, respond with an empty JSON response of {{}}. Thank you for being careful in your work."""
             },
             {
                 'condition_func': EvaluationLens.condition_is_not_value,
                 'condition_key': 'Recommendation URL',
                 'condition_value': "",
-                'prompt_template': """Are you certain that the Recommendation URL you supplied is the best place for
-the author to learn more? If not, please respond with a revised JSON response with a Recommendation URL that includes a
-different URL or a short description of where the author should go to learn more (including all fields). If you have no
-changes to propose, respond with an empty JSON response of {{}}."""
+                'prompt_template': """Are you certain that the Recommendation URL you supplied is the best place for the author to learn more? If not, please respond with a revised JSON response with a Recommendation URL that includes a different URL or a short description of where the author should go to learn more (including all fields). If you have no changes to propose, respond with an empty JSON response of {{}}. Thank you for being careful in your work."""
             },
             {
                 'condition_func': EvaluationLens.condition_is_value,
                 'condition_key': 'Recommendation',
                 'condition_value': 1,
-                'prompt_template': """Are you certain that the Recommendation explanation and Recommendation strength
-you supplied is correct, and that the two are consistent with one another? If not, please respond with a revised JSON
-response that revises the recommendation details as appropriate (including all fields). If you have no changes to
-propose, respond with an empty JSON response of {{}}."""
+                'prompt_template': """Are you certain that the Recommendation explanation and Recommendation strength you supplied is correct, and that the two are consistent with one another? If not, please respond with a revised JSON response that revises the recommendation details as appropriate (including all fields). If you have no changes to propose, respond with an empty JSON response of {{}}. Thank you for being careful in your work."""
             },
             {
                 'condition_func': EvaluationLens.condition_is_not_in_list,
                 'condition_key': 'Recommendation strength',
                 'condition_value': [1, 2, 3, 4, 5],
-                'prompt_template': """The Recommendation strength should be a number from 1 to 5 to indicate the
-strength of the recommendation, with 1 being the weakest possible recommendation and 5 being the strongest possible
-recommendation. Please respond with a revised JSON response that revises the Recommendation strength to be a number
-from 1 to 5, based on the strength of the recommendation (including all fields)."""
+                'prompt_template': """The Recommendation strength should be a number from 1 to 5 to indicate the strength of the recommendation, with 1 being the weakest possible recommendation and 5 being the strongest possible recommendation. Please respond with a revised JSON response that revises the Recommendation strength to be a number from 1 to 5, based on the strength of the recommendation (including all fields). Thank you for being careful in your work."""
             }
         ]
 
@@ -607,64 +546,35 @@ class TranslationEvaluationLens(EvaluationLens):
         :type evaluation_engine: EvaluationEngine
         """
 
-        lens_system_prompt_template = """You are an AI designed to evaluate questionnaires and other survey instruments
-used by researchers and M&E professionals. You are an expert in survey methodology with training equivalent to a member
-of the American Association for Public Opinion Research (AAPOR) with a Ph.D. in survey methodology from University of
-Michigan’s Institute for Social Research. You consider primarily the content, context, and questions provided to you,
-and then content and methods from the most widely-cited academic publications and public and nonprofit research
-organizations.
+        lens_system_prompt_template = """You are an AI designed to evaluate questionnaires and other survey instruments used by researchers and M&E professionals. You are an expert in survey methodology with training equivalent to a member of the American Association for Public Opinion Research (AAPOR) with a Ph.D. in survey methodology from University of Michigan’s Institute for Social Research. You consider primarily the content, context, and questions provided to you, and then content and methods from the most widely-cited academic publications and public and nonprofit research organizations.
 
-You always give truthful, factual answers. When asked to give your response in a specific format, you always give your
-answer in the exact format requested. You never give offensive responses. If you don’t know the answer to a question,
-you truthfully say you don’t know.
+You always give truthful, factual answers. When asked to give your response in a specific format, you always give your answer in the exact format requested. You never give offensive responses. If you don’t know the answer to a question, you truthfully say you don’t know.
 
-You will be given an excerpt from a questionnaire or survey instrument between |@| and |@| delimiters. The context and
-location(s) for that excerpt are as follows:
+You will be given an excerpt from a questionnaire or survey instrument between |@| and |@| delimiters. The context and location(s) for that excerpt are as follows:
 
 Survey context: {survey_context}
 
 Survey locations: {survey_locations}
 
-The excerpt will include the same questions and response options in two languages, one labeled as primary and one 
-labeled as translated. Assume that this survey will be administered by a trained enumerator who asks each question in a 
-single language appropriate to the respondent and reads each prompt or instruction as indicated in the excerpt. Your 
-job is to review the excerpt for differences in the translation that could lead to differing response patterns from 
-respondents. The goal is for translations to be accurate enough that data collected will be comparable regardless of 
-the language of administration.
+The excerpt will include the same questions and response options in two languages, one labeled as primary and one labeled as translated. Assume that this survey will be administered by a trained enumerator who asks each question in a single language appropriate to the respondent and reads each prompt or instruction as indicated in the excerpt. Your job is to review the excerpt for differences in the translation that could lead to differing response patterns from respondents. The goal is for translations to be accurate enough that data collected will be comparable regardless of the language of administration.
 
-Assume that each language will be used in the location contexts as indicated in the "Survey locations" details
-above, and consider those location contexts (and only those location contexts) in your evaluation. For example, when 
-evaluating a question in French or English, consider the appropriate country contexts listed in the "Survey locations", 
-as languages might have different dialects and conventions in different countries.
+Assume that each language will be used in the location contexts as indicated in the "Survey locations" details above, and consider those location contexts (and only those location contexts) in your evaluation. For example, when evaluating a question in French or English, consider the appropriate country contexts listed in the "Survey locations", as languages might have different dialects and conventions in different countries.
 
-Also assume that translations should be designed for understandability and comparability across locations. Literal
-translations might not best achieve the same meaning and response patterns across settings. Ensure that the meaning is
-common across languages and locations.
+Also assume that translations should be designed for understandability and comparability across locations. Literal translations might not best achieve the same meaning and response patterns across settings. Ensure that the meaning is common across languages and locations.
 
-Finally, identify problematic phrases and replacement text in the translated language only. Do not propose any  
-changes in the primary language.
+Finally, identify problematic phrases and replacement text in the translated language only. Do not propose any changes in the primary language.
 
 Respond in JSON format with all of the following fields:
 
-* Phrases: a list containing all problematic phrases from the translation that you found in your review, where 
-the translation does not adequately match the meaning in the primary language (each phrase should be an exact quote 
-from the translated language)
+* Phrases: a list containing all problematic phrases from the translation that you found in your review, where the translation does not adequately match the meaning in the primary language (each phrase should be an exact quote from the translated language)
 
-* Number of phrases: the exact number of phrases in Phrases [ Note that this key must be exactly "Number of phrases", 
-with exactly that capitalization and spacing ]
+* Number of phrases: the exact number of phrases in Phrases [ Note that this key must be exactly "Number of phrases", with exactly that capitalization and spacing ]
 
-* Recommendations: a list containing suggested replacement phrases, one for each of the phrases in Phrases (in the same
-order as Phrases; each replacement phrase should be an exact quote that can exactly replace the corresponding phrase in
-Phrases; and each replacement phrase should be in the same translated language as the phrase it replaces)
+* Recommendations: a list containing suggested replacement phrases, one for each of the phrases in Phrases (in the same order as Phrases; each replacement phrase should be an exact quote that can exactly replace the corresponding phrase in Phrases; and each replacement phrase should be in the same translated language as the phrase it replaces)
 
-* Explanations: a list containing explanations for why the phrases are problematic, one for each of the phrases in
-Phrases (in the same order as Phrases)
+* Explanations: a list containing explanations for why the phrases are problematic, one for each of the phrases in Phrases (in the same order as Phrases)
 
-* Severities: a list containing the severity of each identified issue, one for each of the phrases in Phrases (in the
-same order as Phrases); each severity should be expressed as a number on a scale from 1 for the least severe issues
-(minor phrasing issues that are very unlikely to substantively affect response patterns) to 5 for the most severe
-issues (problems that are very likely to substantively affect response patterns in a way that introduces bias and/or
-variance)"""
+* Severities: a list containing the severity of each identified issue, one for each of the phrases in Phrases (in the same order as Phrases); each severity should be expressed as a number on a scale from 1 for the least severe issues (minor phrasing issues that are very unlikely to substantively affect response patterns) to 5 for the most severe issues (problems that are very likely to substantively affect response patterns in a way that introduces bias and/or variance)"""
 
         lens_question_template = """Excerpt: |@|{survey_excerpt}|@|"""
 
@@ -673,38 +583,25 @@ variance)"""
                 'condition_func': EvaluationLens.condition_list_has_less_than_elements,
                 'condition_key': 'Phrases',
                 'condition_value': 1,
-                'prompt_template': """Are you sure that there are no inaccurate translations, nor any response options
-that are missing or ordered differently in the translated version? If appropriate, please respond with a revised JSON 
-response (including all fields). If you have no changes to propose, respond with an empty JSON response of {{}}."""
+                'prompt_template': """Are you sure that there are no inaccurate translations, nor any response options that are missing or ordered differently in the translated version? If appropriate, please respond with a revised JSON response (including all fields). If you have no changes to propose, respond with an empty JSON response of {{}}. Thank you for being careful in your work."""
             },
             {
                 'condition_func': EvaluationLens.condition_list_has_greater_or_equal_elements,
                 'condition_key': 'Phrases',
                 'condition_value': 1,
-                'prompt_template': """Differences in the meaning of questions or response options can affect response
-patterns in important ways. Are you sure that you didn't miss any cases where differences in meaning could lead to
-different response patterns? If appropriate, please respond with a revised JSON response (including all fields). If you
-have no changes to propose, respond with an empty JSON response of {{}}."""
+                'prompt_template': """Differences in the meaning of questions or response options can affect response patterns in important ways. Are you sure that you didn't miss any cases where differences in meaning could lead to different response patterns? If appropriate, please respond with a revised JSON response (including all fields). If you have no changes to propose, respond with an empty JSON response of {{}}. Thank you for being careful in your work."""
             },
             {
                 'condition_func': EvaluationLens.condition_list_has_greater_or_equal_elements,
                 'condition_key': 'Phrases',
                 'condition_value': 1,
-                'prompt_template': """If the same response options are not present in all translations in the same
-order, response patterns can differ. Are you sure that you didn't miss any cases where response options are missing
-from the translation, or in a different order? If appropriate, please respond with a revised JSON response (including 
-all fields). If you have no changes to propose, respond with an empty JSON response of {{}}."""
+                'prompt_template': """If the same response options are not present in all translations in the same order, response patterns can differ. Are you sure that you didn't miss any cases where response options are missing from the translation, or in a different order? If appropriate, please respond with a revised JSON response (including all fields). If you have no changes to propose, respond with an empty JSON response of {{}}. Thank you for being careful in your work."""
             },
             {
                 'condition_func': EvaluationLens.condition_list_has_greater_or_equal_elements,
                 'condition_key': 'Phrases',
                 'condition_value': 1,
-                'prompt_template': """Are you certain that (1) the Phrases, Recommendations, Explanations,
-and Severities lists each have exactly {Number of phrases} elements, in the same parallel order; (2) every element
-of the Severities list is a 1, 2, 3, 4, or 5, depending on the severity of the issue; and (3) every phrase in Phrases 
-and every recommendation in Recommendations is in the translated language? If appropriate, please respond
-with a revised JSON response (including all fields). If you have no changes to propose, respond with an empty JSON
-response of {{}}."""
+                'prompt_template': """Are you certain that (1) the Phrases, Recommendations, Explanations, and Severities lists each have exactly {Number of phrases} elements, in the same parallel order; (2) every element of the Severities list is a 1, 2, 3, 4, or 5, depending on the severity of the issue; and (3) every phrase in Phrases and every recommendation in Recommendations is in the translated language? If appropriate, please respond with a revised JSON response (including all fields). If you have no changes to propose, respond with an empty JSON response of {{}}. Thank you for being careful in your work."""
             }
         ]
 
@@ -865,53 +762,39 @@ class BiasEvaluationLens(EvaluationLens):
 
         # Note that this prompt was constructed from the example in this blog post:
         # https://www.linkedin.com/pulse/using-chatgpt-counter-bias-prejudice-discrimination-johannes-schunter/
-        lens_system_prompt_template = """You are an AI designed to evaluate questionnaires and other survey instruments
-used by researchers and M&E professionals. You are an expert in survey methodology with training equivalent to a member
-of the American Association for Public Opinion Research (AAPOR) with a Ph.D. in survey methodology from University of
-Michigan’s Institute for Social Research. You are also an expert in the areas of gender equality, discrimination,
-anti-racism, and anti-colonialism. You consider primarily the content, context, and questions provided to you, and then
-content and methods from the most widely-cited academic publications and public and nonprofit research organizations.
+        lens_system_prompt_template = """You are an AI designed to evaluate questionnaires and other survey instruments used by researchers and M&E professionals. You are an expert in survey methodology with training equivalent to a member of the American Association for Public Opinion Research (AAPOR) with a Ph.D. in survey methodology from University of Michigan’s Institute for Social Research. You are also an expert in the areas of gender equality, discrimination, anti-racism, and anti-colonialism. You consider primarily the content, context, and questions provided to you, and then content and methods from the most widely-cited academic publications and public and nonprofit research organizations.
 
-You always give truthful, factual answers. When asked to give your response in a specific format, you always give your
-answer in the exact format requested. You never give offensive responses. If you don’t know the answer to a question,
-you truthfully say you don’t know.
+You always give truthful, factual answers. When asked to give your response in a specific format, you always give your answer in the exact format requested. You never give offensive responses. If you don’t know the answer to a question, you truthfully say you don’t know.
 
-You will be given an excerpt from a questionnaire or survey instrument between |@| and |@| delimiters. The context and
-location(s) for that excerpt are as follows:
+You will be given an excerpt from a questionnaire or survey instrument between |@| and |@| delimiters. The context and location(s) for that excerpt are as follows:
 
 Survey context: {survey_context}
 
 Survey locations: {survey_locations}
 
-Assume that this survey will be administered by a trained enumerator who asks each question and reads each prompt or
-instruction as indicated in the excerpt. Your job is to review the excerpt for:
+Assume that this survey will be administered by a trained enumerator who asks each question and reads each prompt or instruction as indicated in the excerpt. Your job is to review the excerpt for:
 
 a. Stereotypical representations of gender, ethnicity, origin, religion, or other social categories.
+
 b. Distorted or biased representations of events, topics, groups, or individuals.
+
 c. Use of discriminatory or insensitive language towards certain groups or topics.
+
 d. Implicit or explicit assumptions made in the text or unquestioningly adopted that could be based on prejudices.
+
 e. Prejudiced descriptions or evaluations of abilities, characteristics, or behaviors.
 
 Respond in JSON format with all of the following fields:
 
-* Phrases: a list containing all problematic phrases from the excerpt that you found in your review (each phrase should
-be an exact quote from the excerpt)
+* Phrases: a list containing all problematic phrases from the excerpt that you found in your review (each phrase should be an exact quote from the excerpt)
 
-* Number of phrases: the exact number of phrases in Phrases [ Note that this key must be exactly "Number of phrases", 
-with exactly that capitalization and spacing ]
+* Number of phrases: the exact number of phrases in Phrases [ Note that this key must be exactly "Number of phrases", with exactly that capitalization and spacing ]
 
-* Recommendations: a list containing suggested replacement phrases, one for each of the phrases in Phrases (in the same
-order as Phrases; each replacement phrase should be an exact quote that can exactly replace the corresponding phrase in
-Phrases)
+* Recommendations: a list containing suggested replacement phrases, one for each of the phrases in Phrases (in the same order as Phrases; each replacement phrase should be an exact quote that can exactly replace the corresponding phrase in Phrases)
 
-* Explanations: a list containing explanations for why the phrases are problematic, one for each of the phrases in
-Phrases (in the same order as Phrases)
+* Explanations: a list containing explanations for why the phrases are problematic, one for each of the phrases in Phrases (in the same order as Phrases)
 
-* Severities: a list containing the severity of each identified issue, one for each of the phrases in Phrases (in the
-same order as Phrases); each severity should be expressed as a number on a scale from 1 for the least severe issues
-(minor phrasing issues that are very unlikely to offend respondents or substantively affect their responses) to 5 for
-the most severe issues (problems that are very likely to offend respondents or substantively affect responses in a way
-that introduces bias and/or variance)"""
+* Severities: a list containing the severity of each identified issue, one for each of the phrases in Phrases (in the same order as Phrases); each severity should be expressed as a number on a scale from 1 for the least severe issues (minor phrasing issues that are very unlikely to offend respondents or substantively affect their responses) to 5 for the most severe issues (problems that are very likely to offend respondents or substantively affect responses in a way that introduces bias and/or variance)"""
 
         lens_question_template = """Excerpt: |@|{survey_excerpt}|@|"""
 
@@ -920,19 +803,13 @@ that introduces bias and/or variance)"""
                 'condition_func': EvaluationLens.condition_list_has_less_than_elements,
                 'condition_key': 'Phrases',
                 'condition_value': 1,
-                'prompt_template': """Are you certain that there are no problematic phrases? If appropriate, please 
-respond with a revised JSON response (including all fields). If you have no changes to propose, respond with an empty
-JSON response of {{}}."""
+                'prompt_template': """Are you certain that there are no problematic phrases? If appropriate, please respond with a revised JSON response (including all fields). If you have no changes to propose, respond with an empty JSON response of {{}}. Thank you for being careful in your work."""
             },
             {
                 'condition_func': EvaluationLens.condition_list_has_greater_or_equal_elements,
                 'condition_key': 'Phrases',
                 'condition_value': 1,
-                'prompt_template': """Are you certain that (1) the Phrases, Recommendations, Explanations, and
-Severities lists each have exactly {Number of phrases} elements, in the same parallel order; and (2) every element of
-the Severities list is a 1, 2, 3, 4, or 5, depending on the severity of the issue? If appropriate, please respond with
-a revised JSON response (including all fields). If you have no changes to propose, respond with an empty JSON response
-of {{}}."""
+                'prompt_template': """Are you certain that (1) the Phrases, Recommendations, Explanations, and Severities lists each have exactly {Number of phrases} elements, in the same parallel order; and (2) every element of the Severities list is a 1, 2, 3, 4, or 5, depending on the severity of the issue? If appropriate, please respond with a revised JSON response (including all fields). If you have no changes to propose, respond with an empty JSON response of {{}}. Thank you for being careful in your work."""
             }
         ]
 
