@@ -19,15 +19,15 @@ with open('README.rst') as file:
 
 setup(
     name='surveyeval',
-    version='0.1.15',
+    version='0.1.16',
     packages=['surveyeval'],
     python_requires='>=3.10',
     install_requires=[
         'tiktoken',
-        'openai~=1.29.0',
-        'langchain~=0.1.15',
-        'langchain-openai~=0.1.6',
-        'langchain-community~=0.0.17',
+        'openai>=1.29.0,<2.0.0',
+        'langchain>=0.1.15,<1.0.0',
+        'langchain-openai>=0.1.6,<1.0.0',
+        'langchain-community>=0.0.17,<1.0.0',
         'overrides~=7.3.1',
     ],
     package_data={

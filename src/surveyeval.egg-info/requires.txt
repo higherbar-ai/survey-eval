@@ -1,6 +1,6 @@
 tiktoken
-openai~=1.29.0
-langchain~=0.1.15
-langchain-openai~=0.1.6
-langchain-community~=0.0.17
+openai<2.0.0,>=1.29.0
+langchain<1.0.0,>=0.1.15
+langchain-openai<1.0.0,>=0.1.6
+langchain-community<1.0.0,>=0.0.17
 overrides~=7.3.1
