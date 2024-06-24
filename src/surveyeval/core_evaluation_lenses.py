@@ -32,6 +32,8 @@ class PhrasingEvaluationLens(EvaluationLens):
         :type evaluation_engine: EvaluationEngine
         """
 
+        lens_eval_description = """This lens evaluates the phrasing of questions in a survey instrument, considering the context and locations provided. The goal is to identify any phrasing issues that might be flagged during piloting or cognitive interviewing. The lens will provide a list of phrases that are likely to be identified as problematic, along with suggested replacement phrases."""
+
         lens_system_prompt_template = """You are an AI designed to evaluate questionnaires and other survey instruments used by researchers and M&E professionals. You are an expert in survey methodology with training equivalent to a member of the American Association for Public Opinion Research (AAPOR) with a Ph.D. in survey methodology from University of Michigan’s Institute for Social Research. You consider primarily the content, context, and questions provided to you, and then content and methods from the most widely-cited academic publications and public and nonprofit research organizations.
 
 You always give truthful, factual answers. When asked to give your response in a specific format, you always give your answer in the exact format requested. You never give offensive responses. If you don’t know the answer to a question, you truthfully say you don’t know.
@@ -113,7 +115,8 @@ Consider whether you made any mistakes or neglected any instructions in your ori
         ]
 
         # call super constructor
-        super().__init__(lens_system_prompt_template, lens_question_template, lens_followups, evaluation_engine)
+        super().__init__(lens_system_prompt_template, lens_question_template, lens_followups, evaluation_engine,
+                         lens_eval_description)
 
     @overrides
     def evaluate(self, chat_history: list = None, survey_context: str = "", survey_locations: str = "",
@@ -271,6 +274,8 @@ class ValidatedInstrumentEvaluationLens(EvaluationLens):
         :type evaluation_engine: EvaluationEngine
         """
 
+        lens_eval_description = """This lens evaluates an excerpt of questions from a survey instrument, considering the context and locations provided. The goal is to identify validated questions, instruments, or tools commonly used for measuring what the excerpt is attempting to measure, and recommend that the authors consider replicating or adapting these as appropriate."""
+
         lens_system_prompt_template = """You are an AI designed to evaluate questionnaires and other survey instruments used by researchers and M&E professionals. You are an expert in survey methodology with training equivalent to a member of the American Association for Public Opinion Research (AAPOR) with a Ph.D. in survey methodology from University of Michigan’s Institute for Social Research. You consider primarily the content, context, and questions provided to you, and then content and methods from the most widely-cited academic publications and public and nonprofit research organizations.
 
 You always give truthful, factual answers. When asked to give your response in a specific format, you always give your answer in the exact format requested. You never give offensive responses. If you don’t know the answer to a question, you truthfully say you don’t know.
@@ -359,7 +364,8 @@ Your job is to respond with your evaluation in JSON format with all of the follo
         ]
 
         # call super constructor
-        super().__init__(lens_system_prompt_template, lens_question_template, lens_followups, evaluation_engine)
+        super().__init__(lens_system_prompt_template, lens_question_template, lens_followups, evaluation_engine,
+                         lens_eval_description)
 
     @overrides
     def evaluate(self, chat_history: list = None, survey_context: str = "", survey_locations: str = "",
@@ -546,6 +552,8 @@ class TranslationEvaluationLens(EvaluationLens):
         :type evaluation_engine: EvaluationEngine
         """
 
+        lens_eval_description = """This lens evaluates the translation of questions in a survey instrument, considering the context and locations provided. The goal is to review the excerpt for differences in translation that could lead to differing response patterns from respondents. The lens will identify translations that are problematic and suggest replacements that make the translations accurate enough that data collected will be comparable regardless of the language of administration."""
+
         lens_system_prompt_template = """You are an AI designed to evaluate questionnaires and other survey instruments used by researchers and M&E professionals. You are an expert in survey methodology with training equivalent to a member of the American Association for Public Opinion Research (AAPOR) with a Ph.D. in survey methodology from University of Michigan’s Institute for Social Research. You consider primarily the content, context, and questions provided to you, and then content and methods from the most widely-cited academic publications and public and nonprofit research organizations.
 
 You always give truthful, factual answers. When asked to give your response in a specific format, you always give your answer in the exact format requested. You never give offensive responses. If you don’t know the answer to a question, you truthfully say you don’t know.
@@ -606,7 +614,8 @@ Respond in JSON format with all of the following fields:
         ]
 
         # call super constructor
-        super().__init__(lens_system_prompt_template, lens_question_template, lens_followups, evaluation_engine)
+        super().__init__(lens_system_prompt_template, lens_question_template, lens_followups, evaluation_engine,
+                         lens_eval_description)
 
     @overrides
     def evaluate(self, chat_history: list = None, survey_context: str = "", survey_locations: str = "",
@@ -760,6 +769,8 @@ class BiasEvaluationLens(EvaluationLens):
         :type evaluation_engine: EvaluationEngine
         """
 
+        lens_eval_description = """This lens evaluates the phrasing of questions in a survey instrument, considering the context and locations provided. The goal is to identify phrasing that includes stereotypes, bias, discriminatory or insensitive language, or prejudice. The lens will provide a list of phrases that are likely to be identified as problematic, along with suggested replacement phrases."""
+
         # Note that this prompt was constructed from the example in this blog post:
         # https://www.linkedin.com/pulse/using-chatgpt-counter-bias-prejudice-discrimination-johannes-schunter/
         lens_system_prompt_template = """You are an AI designed to evaluate questionnaires and other survey instruments used by researchers and M&E professionals. You are an expert in survey methodology with training equivalent to a member of the American Association for Public Opinion Research (AAPOR) with a Ph.D. in survey methodology from University of Michigan’s Institute for Social Research. You are also an expert in the areas of gender equality, discrimination, anti-racism, and anti-colonialism. You consider primarily the content, context, and questions provided to you, and then content and methods from the most widely-cited academic publications and public and nonprofit research organizations.
@@ -814,7 +825,8 @@ Respond in JSON format with all of the following fields:
         ]
 
         # call super constructor
-        super().__init__(lens_system_prompt_template, lens_question_template, lens_followups, evaluation_engine)
+        super().__init__(lens_system_prompt_template, lens_question_template, lens_followups, evaluation_engine,
+                         lens_eval_description)
 
     @overrides
     def evaluate(self, chat_history: list = None, survey_context: str = "", survey_locations: str = "",

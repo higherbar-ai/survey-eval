@@ -504,13 +504,15 @@ class EvaluationLens:
     """Class for instrument evaluation lens, which is used to conduct a particular type of evaluation."""
 
     evaluation_engine: EvaluationEngine
+    lens_description: str
     task_system_prompt_template: str
     question_template: str
     followups: list[dict]
     evaluation_result: dict
 
     def __init__(self, task_system_prompt_template: str, question_template: str, followups: list[dict],
-                 evaluation_engine: EvaluationEngine):
+                 evaluation_engine: EvaluationEngine,
+                 lens_description: str = "Evaluation lens with unknown description"):
         """
         Initialize evaluation lens.
 
@@ -533,9 +535,13 @@ class EvaluationLens:
         :type followups: list[dict]
         :param evaluation_engine: Evaluation engine instance to use for conducting evaluation.
         :type evaluation_engine: EvaluationEngine
+        :param lens_description: High-level description of the evaluation lens, sufficient for LLM-as-judge evaluation
+            of results.
+        :type lens_description: str
         """
 
         # initialize object from constructor parameters
+        self.lens_description = lens_description
         self.task_system_prompt_template = task_system_prompt_template
         if evaluation_engine.extra_evaluation_instructions:
             self.task_system_prompt_template += (f"\n\nAlso follow these additional instructions:\n\n"
