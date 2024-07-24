@@ -15,14 +15,15 @@
 """Core classes for instrument evaluation engine."""
 
 from langchain_openai import ChatOpenAI, AzureChatOpenAI
-from langchain_core.prompts import SystemMessagePromptTemplate, HumanMessagePromptTemplate, ChatPromptTemplate
-from langchain.memory import ConversationSummaryBufferMemory, ChatMessageHistory
-from langchain.chains import ConversationChain
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.chat_history import InMemoryChatMessageHistory
+from langchain_core.runnables import Runnable
+from langchain_core.runnables.history import RunnableWithMessageHistory
 import re
 import tiktoken
-import json
 import asyncio
 import logging
+import copy
 
 
 class EvaluationEngine:
@@ -50,9 +51,9 @@ class EvaluationEngine:
         """
         Initialize evaluation engine.
 
-        :param summarize_model: LLM model to use for summarizing multistep conversations.
+        :param summarize_model: LLM model to use for summarizing multistep conversations (not currently used).
         :type summarize_model: str
-        :param summarize_provider: Provider name for the summarization model ("openai" or "azure").
+        :param summarize_provider: Provider name for the summarization model ("openai" or "azure") (not currently used).
         :type summarize_provider: str
         :param evaluation_model: LLM model to use for instrument evaluation (when using Azure, the
             deployment or engine name must be the same as the model name).
@@ -180,43 +181,17 @@ class EvaluationEngine:
 
         return s
 
-    def get_chain(self, system_prompt: str = "", max_history_tokens: int = 2000,
-                  starting_chat_history: list[tuple] = None) -> ConversationChain:
+    def get_chain(self, system_prompt: str = "", starting_chat_history: list[tuple] = None) -> Runnable:
         """
         Get a conversation chain for use in evaluating an instrument.
 
         :param system_prompt: System prompt template to use for the conversation chain.
         :type system_prompt: str
-        :param max_history_tokens: Maximum number of tokens to allow in the conversation history.
-        :type max_history_tokens: int
         :param starting_chat_history: Starting chat history to use for the conversation chain (or None for none).
         :type starting_chat_history: list[tuple]
-        :return: Conversation chain to use for instrument evaluation.
-        :rtype: ConversationChain
+        :return: Runnable conversation chain to use for instrument evaluation.
+        :rtype: Runnable
         """
-
-        # initialize summarization provider
-        if self.summarize_provider == "azure":
-            # (for this Azure implementation, the engine name always has to match the model)
-            summarize_llm = AzureChatOpenAI(
-                temperature=self.temperature,
-                verbose=False,
-                model_name=self.summarize_model,
-                azure_endpoint=self.azure_api_base,
-                openai_api_version=self.azure_api_version,
-                deployment_name=self.summarize_model,
-                openai_api_key=self.azure_api_key,
-                openai_api_type="azure",
-                tiktoken_model_name=self.tiktoken_model_name
-            )
-        else:
-            summarize_llm = ChatOpenAI(
-                temperature=self.temperature,
-                verbose=False,
-                model_name=self.summarize_model,
-                openai_api_key=self.openai_api_key,
-                tiktoken_model_name=self.tiktoken_model_name
-            )
 
         # initialize evaluation provider
         if self.evaluation_provider == "azure":
@@ -241,49 +216,28 @@ class EvaluationEngine:
                 tiktoken_model_name=self.tiktoken_model_name
             )
 
-        # construct starting history
-        history = ChatMessageHistory()
+        # initialize chat history
+        history = InMemoryChatMessageHistory()
         if starting_chat_history is not None:
             for (human_message, ai_message) in starting_chat_history:
                 history.add_user_message(human_message)
                 history.add_ai_message(ai_message)
 
-        # requirement for ConversationChain history to work the way we want
-        return_messages_preference = False
-
-        # construct memory
-        memory = ConversationSummaryBufferMemory(
-            llm=summarize_llm,
-            chat_memory=history,
-            max_token_limit=max_history_tokens,
-            output_key='answer',
-            memory_key='chat_history',
-            ai_prefix="Assistant",
-            human_prefix="Human",
-            return_messages=return_messages_preference,
-            tiktoken_model_name=self.tiktoken_model_name)
-
-        # prune starting history (if any)
-        if starting_chat_history is not None:
-            memory.prune()
-
         # create template for chat prompt, including history
-        human_template = """Current conversation:
-{chat_history}
-
-Human: {question}
-Assistant:"""
-
-        # assemble prompts
-        system_message_prompt = SystemMessagePromptTemplate.from_template(system_prompt)
-        human_message_prompt = HumanMessagePromptTemplate.from_template(human_template)
-        chat_prompt = ChatPromptTemplate.from_messages([system_message_prompt, human_message_prompt])
-
-        # create and return conversation chain
-        llm_chain = ConversationChain(
-            llm=conversation_llm, prompt=chat_prompt, memory=memory, input_key="question", output_key="answer"
+        chat_prompt = ChatPromptTemplate.from_messages(
+            [
+                ("system", system_prompt),
+                ("placeholder", "{chat_history}"),
+                ("human", "{question}"),
+            ]
         )
-        return llm_chain
+
+        # create and return a runnable chain
+        chain = chat_prompt | conversation_llm.with_structured_output(method="json_mode", include_raw=True)
+        chain_with_history = RunnableWithMessageHistory(chain, lambda x: history, input_messages_key="question",
+                                                        history_messages_key="chat_history",
+                                                        output_messages_key="raw")
+        return chain_with_history
 
     async def a_run_evaluation_chain(self, task_system_prompt: str, question: str, followups: list[dict],
                                      chat_history: list = None) -> dict:
@@ -316,12 +270,10 @@ Assistant:"""
         """
 
         # initialize new evaluation chain
-        llm_chain = self.get_chain(system_prompt=task_system_prompt, starting_chat_history=chat_history,
-                                   max_history_tokens=6000)
+        llm_chain = self.get_chain(system_prompt=task_system_prompt, starting_chat_history=chat_history)
 
         # initialize results
         result_dict = {"result": None, "error": None, "response": None, "history": None}
-        response_dict = None
         full_history = []
 
         # ask our question to the LLM, retrying the appropriate number of times
@@ -329,11 +281,18 @@ Assistant:"""
         while True:
             attempt += 1
             try:
-                # ask our question and record the result
-                result = await llm_chain.ainvoke({"question": question})
-                if chat_history is not None:
-                    chat_history.append((question, result["answer"]))
-                break
+                # ask our question and break on success
+                result = await llm_chain.ainvoke({"question": question},
+                                                 config={"configurable": {"session_id": "NA"}})
+                if 'parsed' in result and result['parsed'] is not None:
+                    # if we got a parsed result, break from retry loop
+                    break
+                elif 'parsing_error' in result and result['parsing_error'] is not None:
+                    # if there was a parsing error, raise an exception
+                    raise Exception(f"Error parsing LLM's JSON response: {str(result['parsing_error'])}")
+                else:
+                    # if we got neither an error nor a parsed response, raise an exception
+                    raise Exception("Error parsing LLM's JSON response: no parsed response or error message")
             except Exception as e:
                 self.logger.error(f"Error occurred asking question (attempt {attempt}): {str(e)}")
                 if attempt < self.max_retries:
@@ -345,38 +304,36 @@ Assistant:"""
                     result_dict["error"] = f"Max retries reached on question. Last error: {str(e)}"
                     return result_dict
 
-        # get prompt and response, record in history
-        prompt = result["question"].strip()
-        json_response = result["answer"].strip()
-        full_history.append([prompt, json_response])
+        # copy parsed response (because we might update it later), record prompt and response in history
+        response_dict = copy.deepcopy(result['parsed'])
+        json_result = result['raw'].content
+        if chat_history is not None:
+            chat_history.append((question, json_result))
+        full_history.append([question, json_result])
 
-        # parse result as JSON
-        try:
-            response_dict = json.loads(EvaluationEngine.trim_json(json_response))
-        except Exception as e:
-            error_message = f"Error occurred parsing LLM's JSON response ({str(e)}); raw JSON: {json_response}"
-            self.logger.error(error_message)
-            result_dict["result"] = "error"
-            result_dict["error"] = error_message
-        else:
-            # unless something goes wrong later, presume we're successful
-            result_dict["result"] = "success"
+        # unless something goes wrong later, presume we're successful
+        result_dict["result"] = "success"
 
-            # ask follow-up questions
-            for followup in followups:
-                followup_result = await self.a_followup_question(**followup, response_dict=response_dict,
-                                                                 llm_chain=llm_chain, chat_history=chat_history)
+        # ask follow-up questions
+        for followup in followups:
+            followup_result = await self.a_followup_question(**followup, response_dict=response_dict,
+                                                             llm_chain=llm_chain, chat_history=chat_history)
 
-                # if we actually asked a follow-up, include it in the history
-                if followup_result["result"] != "skipped":
-                    full_history.append([prompt, json_response])
-                if followup_result["result"] == "success" and followup_result["response"]:
-                    # if we actually got a parsed response, update the response dict
-                    response_dict.update(followup_result["response"])
-                elif followup_result["result"] == "error":
-                    # otherwise, if we got an error, update the result dict to reflect that
-                    result_dict["error"] = followup_result["error"]
-                    result_dict["result"] = "error"
+            # if we actually asked a follow-up and got some kind of response, include it in the history
+            if (followup_result["result"] != "skipped" and followup_result["prompt"] is not None
+                    and followup_result["response_json"] is not None):
+                full_history.append([followup_result["prompt"], followup_result["response_json"]])
+
+            if followup_result["result"] == "success" and followup_result["response"]:
+                # if we actually got a parsed response with a non-empty dict, update the response dict
+                response_dict.update(followup_result["response"])
+                # continue to the next follow-up (if any)
+            elif followup_result["result"] == "error":
+                # otherwise, if we got an error, update the result dict to reflect that
+                result_dict["error"] = followup_result["error"]
+                result_dict["result"] = "error"
+                # and break from the loop to return
+                break
 
         # assemble and return results
         result_dict["response"] = response_dict
@@ -425,7 +382,7 @@ Assistant:"""
         )
 
     async def a_followup_question(self, condition_func: callable, condition_key: str, condition_value,
-                                  prompt_template: str, response_dict: dict, llm_chain: ConversationChain,
+                                  prompt_template: str, response_dict: dict, llm_chain: Runnable,
                                   chat_history: list = None) -> dict:
         """
         Ask a follow-up question (asynchronously).
@@ -441,8 +398,8 @@ Assistant:"""
         :type prompt_template: str
         :param response_dict: Full response dictionary.
         :type response_dict: dict
-        :param llm_chain: Conversation chain to use for asking the follow-up question.
-        :type llm_chain: ConversationChain
+        :param llm_chain: Runnable conversation chain to use for asking the follow-up question.
+        :type llm_chain: Runnable
         :param chat_history: Chat history to use for the evaluation chain (or None for none).
         :type chat_history: list
         :return: A dict with result ("success", "error", or "skipped"), error (if result is "error"), prompt (a str),
@@ -465,11 +422,24 @@ Assistant:"""
             while True:
                 attempt += 1
                 try:
-                    # ask our question and record the result
-                    result = await llm_chain.ainvoke({"question": followup_question})
-                    if chat_history is not None:
-                        chat_history.append((followup_question, result["answer"]))
-                    break
+                    # ask our question and break on success
+                    result = await llm_chain.ainvoke({"question": followup_question},
+                                                     config={"configurable": {"session_id": "NA"}})
+                    if 'raw' in result and result['raw'] is not None and result['raw'].content:
+                        # if there's a raw response, save it for return
+                        result_dict["response_json"] = result['raw'].content
+
+                    if 'parsed' in result and result['parsed'] is not None:
+                        # if we got a parsed result, break from retry loop
+                        break
+                    elif 'parsing_error' in result and result['parsing_error'] is not None:
+                        # if there was a parsing error, raise an exception
+                        raise Exception(f"Error parsing LLM's JSON response to follow-up: "
+                                        f"{str(result['parsing_error'])}")
+                    else:
+                        # if we got neither an error nor a parsed response, raise an exception
+                        raise Exception("Error parsing LLM's JSON response to follow-up: no parsed response "
+                                        "or error message")
                 except Exception as e:
                     self.logger.error(f"Error occurred asking follow-up (attempt {attempt}): {str(e)}")
                     if attempt < self.max_retries:
@@ -478,21 +448,14 @@ Assistant:"""
                     else:
                         # maximum attempts reached, return error
                         result_dict["result"] = "error"
-                        result_dict["error"] = f"Max retries reached on question. Last error: {str(e)}"
+                        result_dict["error"] = f"Max retries reached on follow-up question. Last error: {str(e)}"
                         return result_dict
 
-            # parse result as JSON
-            json_response = result["answer"].strip()
-            result_dict["response_json"] = json_response
-            if json_response != "{}":
-                try:
-                    result_dict["response"] = json.loads(EvaluationEngine.trim_json(json_response))
-                    result_dict["result"] = "success"
-                except Exception as e:
-                    error_message = f"Error occurred parsing LLM's JSON response ({str(e)}); raw JSON: {json_response}"
-                    self.logger.error(error_message)
-                    result_dict["error"] = error_message
-                    result_dict["result"] = "error"
+            # note parsed response, record in history
+            result_dict["response"] = result['parsed']
+            result_dict["result"] = "success"
+            if chat_history is not None and result_dict["response_json"] is not None:
+                chat_history.append((followup_question, result_dict["response_json"]))
         else:
             result_dict["result"] = "skipped"
 
