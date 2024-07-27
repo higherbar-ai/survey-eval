@@ -205,7 +205,8 @@ class EvaluationEngine:
                 deployment_name=self.evaluation_model,
                 openai_api_key=self.azure_api_key,
                 openai_api_type="azure",
-                tiktoken_model_name=self.tiktoken_model_name
+                tiktoken_model_name=self.tiktoken_model_name,
+                model=self.evaluation_model
             )
         else:
             conversation_llm = ChatOpenAI(
@@ -514,7 +515,7 @@ class EvaluationLens:
         self.evaluation_engine = evaluation_engine
         self.evaluation_result = {}
 
-    def evaluate(self, chat_history=None, **kwargs) -> dict:
+    def evaluate(self, chat_history: list = None, **kwargs) -> dict:
         """
         Run an evaluation chain (synchronously).
 
@@ -535,7 +536,7 @@ class EvaluationLens:
             followups=self.followups, chat_history=chat_history)
         return self.evaluation_result
     
-    async def a_evaluate(self, chat_history=None, **kwargs) -> dict:
+    async def a_evaluate(self, chat_history: list = None, **kwargs) -> dict:
         """
         Run an evaluation chain (asynchronously).
 

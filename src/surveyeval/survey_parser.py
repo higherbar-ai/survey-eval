@@ -1370,6 +1370,7 @@ def generate_extractor_chain(model_input: str, api_base: str, openai_api_key: st
             openai_api_version=open_api_version,
             openai_api_key=openai_api_key,
             openai_api_type="azure",
+            model=model_input
         )
     elif provider == "openai":
         llm = ChatOpenAI(
