@@ -157,6 +157,9 @@ read or parsed well, you might want to simplify the file to make it easier to re
 4. Label each translation with the same unique question identifier to help link them together. When possible, keep
    translations together.
 
+After you've parsed a file, you can use the ``output_parsed_data_to_xlsform()`` method if you'd like to output it as an
+XLSForm file formatted for SurveyCTO.
+
 Known issues
 ^^^^^^^^^^^^
 
