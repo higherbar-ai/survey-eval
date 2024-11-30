@@ -1,6 +1,6 @@
 Metadata-Version: 2.1
 Name: surveyeval
-Version: 0.1.21
+Version: 0.1.22
 Summary: A toolkit for survey evaluation
 Home-page: https://github.com/higherbar-ai/survey-eval
 Author: Christopher Robert
@@ -12,7 +12,7 @@ License-File: LICENSE
 Requires-Dist: pydantic
 Requires-Dist: overrides~=7.3.1
 Requires-Dist: openpyxl<4.0.0,>=3.0.9
-Requires-Dist: py-ai-workflows==0.*
+Requires-Dist: py-ai-workflows<1.0.0,>=0.16.0
 
 ==========
 surveyeval

@@ -2,7 +2,7 @@ ipywidgets
 pydantic
 overrides>=7.3.1,<8.0.0
 openpyxl>=3.0.9,<4.0.0
-py-ai-workflows==0.*
+py-ai-workflows>=0.16.0,<1.0.0
 # dev environment
 jupyter
 nltk
