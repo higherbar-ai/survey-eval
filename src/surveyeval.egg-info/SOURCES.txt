@@ -4,7 +4,6 @@ setup.py
 src/surveyeval/__init__.py
 src/surveyeval/core_evaluation_lenses.py
 src/surveyeval/evaluation_engine.py
-src/surveyeval/html_tools.py
 src/surveyeval/survey_parser.py
 src/surveyeval.egg-info/PKG-INFO
 src/surveyeval.egg-info/SOURCES.txt

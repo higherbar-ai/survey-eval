@@ -2,22 +2,79 @@
 surveyeval
 ==========
 
-This repository contains a toolkit for AI-powered survey instrument evaluation. It's still in early development, but 
-is ready to support piloting and experimentation. To learn more about the overall project, see 
+The ``surveyeval`` package is a toolkit for AI-powered survey instrument evaluation. It's still in early development,
+but is ready to support piloting and experimentation. To learn more about the overall project, see
 `this blog post <https://www.linkedin.com/pulse/under-the-hood-ai-beyond-chatbots-christopher-robert-dquue>`_.
 
 Installation
 ------------
 
-Installing the latest version with pip::
+Install the latest version with pip::
 
     pip install surveyeval
 
-Note that you might need to install additional requirements to use the ``survey_parser`` module. Only requirements for
-the core evaluation engine are automatically installed by ``pip``. To install all requirements, use
-`the requirements list from the full repo <https://github.com/higherbar-ai/survey-eval/blob/main/requirements.txt>`_::
+You'll also need to install several other dependencies, which you can do by running the
+`initial-setup.ipynb <https://github.com/higherbar-ai/survey-eval/blob/main/src/initial-setup.ipynb>`_ Jupyter
+notebook — or by installing them manually as follows.
 
-    pip install -r requirements.txt
+First, download NTLK data for natural language text processing::
+
+    # download NLTK data
+    import nltk
+    nltk.download('punkt', force=True)
+
+Then install ``libreoffice`` for converting Office documents to PDF.
+
+  On Linux::
+
+    # install LibreOffice for document processing
+    !apt-get install -y libreoffice
+
+  On MacOS::
+
+    # install LibreOffice for document processing
+    brew install libreoffice
+
+  On Windows::
+
+    # install LibreOffice for document processing
+    choco install -y libreoffice
+
+Finally, if you're accessing models via AWS Bedrock, the AWS CLI needs to be installed and configured for AWS access.
+
+Jupyter notebooks with Google Colab support
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+You can use `the colab-or-not package <https://github.com/higherbar-ai/colab-or-not>`_ to initialize a Jupyter notebook
+for Google Colab or other environments::
+
+    %pip install colab-or-not surveyeval
+
+    # download NLTK data
+    import nltk
+    nltk.download('punkt', force=True)
+
+    # set up our notebook environment (including LibreOffice)
+    from colab_or_not import NotebookBridge
+    notebook_env = NotebookBridge(
+        system_packages=["libreoffice"],
+        config_path="~/.hbai/survey-eval.env",
+        config_template={
+            "openai_api_key": "",
+            "openai_model": "",
+            "azure_api_key": "",
+            "azure_api_base": "",
+            "azure_api_engine": "",
+            "azure_api_version": "",
+            "anthropic_api_key": "",
+            "anthropic_model": "",
+            "langsmith_api_key": "",
+        }
+    )
+    notebook_env.setup_environment()
+
+See `file-evaluation-example.ipynb <https://github.com/higherbar-ai/survey-eval/blob/main/src/file-evaluation-example.ipynb>`_
+for an example.
 
 Overview
 ---------
@@ -25,12 +82,13 @@ Overview
 Here are the basics:
 
 #. This toolkit includes code to read, parse, and evaluate survey instruments.
-#. The ``file-evaluation-example.ipynb`` Jupyter workbook provides a working example for evaluating a single survey
-   instrument file. It includes details on how to install, configure, and run.
+#. `The file-evaluation-example.ipynb Jupyter notebook <https://github.com/higherbar-ai/survey-eval/blob/main/src/file-evaluation-example.ipynb>`_
+   provides a working example for evaluating a single survey instrument file. It includes details on how to install,
+   configure, and run.
 #. The evaluation engine itself lives in the ``evaluation_engine`` module. It provides a pretty basic framework for
    applying different evaluation lenses to a survey instrument.
 #. The ``core_evaluation_lenses`` module contains an initial set of evaluation lenses that can be applied to survey
-   instruments. These are the ones applied in the example workbook. They are:
+   instruments. These are the ones applied in the example notebook. They are:
 
    a. ``PhrasingEvaluationLens``: Cases where phrasing might be adjusted to improve respondent understanding and reduce
       measurement error (i.e., the kinds of phrasing issues that would be identified through rigorous cognitive
@@ -42,13 +100,17 @@ Here are the basics:
       on the subject of using ChatGPT to identify bias)
    d. ``ValidatedInstrumentEvaluationLens``: Cases where a validated instrument might be adapted to better measure an
       inferred construct of interest
-#. The code for reading and parsing files is in the ``survey_parser`` module. There's much there that can be improved
-   about how different file formats are read into raw text, and then how they're parsed into questions, modules, and so 
-   on. In particular, one might improve the range of examples provided to the LLM.
+#. The code for reading and parsing files is in the ``survey_parser`` module. Aside from
+   `XLSForm <https://xlsform.org/en/>`_ files and REDCap data dictionaries — which are parsed directly — the module
+   relies heavily on
+   `the ai_workflows package <https://github.com/higherbar-ai/ai-workflows>`_ for reading files and using an LLM to
+   assist with parsing.
 
-You can run the ``file-evaluation-example.ipynb`` workbook as-is, but you might also consider customizing the
-core evaluation lenses to better meet your needs and/or adding your own evaluation lenses to the workbook. When adding
-new lenses, you can just use any of the initial lenses as a template.
+You can run the
+`file-evaluation-example.ipynb <https://github.com/higherbar-ai/survey-eval/blob/main/src/file-evaluation-example.ipynb>`_
+notebook as-is, but you might also consider customizing the core evaluation lenses to better meet your needs and/or
+adding your own evaluation lenses to the notebook. When adding new lenses, you can just use any of the initial lenses
+as a template.
 
 If you make use of this toolkit, we'd love to hear from you — and help to share your results with the community. Please
 email us at ``info@higherbar.ai``.
@@ -56,65 +118,74 @@ email us at ``info@higherbar.ai``.
 Technical notes
 ---------------
 
-Reading input files
-^^^^^^^^^^^^^^^^^^^
+Reading and parsing input files
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-The ``survey_parser`` module contains code for reading input files. It currently supports the following
-file formats:
+The ``survey_parser`` module contains code for reading input files. It directly supports two popular formats for
+digital instruments (`XLSForm <https://xlsform.org/en/>`_ files and REDCap data dictionaries), which are read straight
+into a structured format that is ready for evaluation. A wide variety of other document formats are supported via the
+`ai_workflows <https://github.com/higherbar-ai/ai-workflows>`_ package, in two stages:
 
-1. ``.docx``: Word files are read in the ``read_docx()`` function, using LangChain's ``UnstructuredFileLoader()`` function.
-   Note that text within "content controls" is effectively invisible, so you might need to open your file, select all, 
-   and select "Remove content controls" to render the text visible 
-   (`see here for more on content controls <https://learn.microsoft.com/en-us/office/client-developer/word/content-controls-in-word>`_).
-2. ``.pdf``: PDF files are read in the ``read_pdf_combined()`` function, which tries to read the text and tables in a PDF
-   (separately), combine them together, and then fall back to using an OCR reader if that process didn't find much 
-   text. There is a ton of room for improvement here.
-3. ``.xlsx``: Excel files are read in the ``parse_xlsx()`` function, in two ways. If the file looks like it's in
-   `XLSForm format <https://xlsform.org/en/>`_, it parses it accordingly; this parsing should be completely lossless
-   and requires no additional parsing at later stages. If the file does not appear to be an XLSForm, the reader falls
-   back to using LangChain's ``UnstructuredExcelLoader()`` to load the workbook in HTML format, then uses that HTML as
-   the raw text for parsing. XLSForm handling should be robust, but there is much that can be improved in how other
-   formats are handled.
-4. ``.csv``: CSV files are read in the ``parse_csv()`` function, also in two ways. If the file looks like a REDCap
-   data dictionary, it will parse the columns accordingly (requiring little to no later processing). Otherwise, it
-   falls back to just reading the file as raw text. There is much that can be improved here, particularly in how
-   REDCap data dictionaries are handled (e.g., the current approach doesn't handle modules or translations).
-5. ``.html``: HTML files are read in the ``read_html()`` function, then converted into markdown for parsing.
+1. In the first stage, raw text is extracted from the document in a basic Markdown format. The techniques used depend
+   on the file format, but when possible an LLM is used to transform each page into Markdown text, and then all of the
+   text is merged together. LLM-based extraction can be slow and expensive (roughly $0.015/page), so you can disable it
+   by setting the ``use_llm`` parameter to ``False`` when calling the ``read_survey_contents()`` function. For example::
 
-All of the raw content is split into 3,000-character chunks with 500 characters of overlap, before being passed on
-for parsing. This is necessary to (a) avoid overflowing LLM context windows, (b) avoid overflowing output token
-limits, and (c) allow the LLM to focus on a tractable amount of text in any given request (with the latter becoming
-more important as the constraints on context windows are relaxed).
+    from surveyeval.survey_parser import SurveyInterface
+    survey_interface = SurveyInterface(openai_api_key=openai_api_key, openai_model=openai_model, langsmith_api_key=langsmith_api_key)
+    survey_contents = survey_interface.read_survey_contents(os.path.expanduser(input_path), use_llm=False)
 
-Overall, the code for reading files performs pretty poorly for all but the simplest formats. There's much work to do
-here to improve quality.
+2. In the second stage, the Markdown text is parsed into a structured format including modules, questions, response
+   options, and so on. This is done by the ``parse_survey_contents()`` function, which uses an LLM to assist with
+   parsing. For example::
 
-Parsing input files
-^^^^^^^^^^^^^^^^^^^
+    data = survey_interface.parse_survey_contents(survey_contents=survey_contents, survey_context=evaluation_context)
 
-The actual parsing happens in the ``survey_parser`` module, with LLM assistance via
-`the LangChain approach to extraction <https://python.langchain.com/docs/use_cases/extraction/>`_.
+See the `ai_workflows <https://github.com/higherbar-ai/ai-workflows>`_ documentation for more details on how particular
+file formats are read.
 
-If performance is poor for your file, you can try giving the parser some examples from the raw data read from your
-file. Search for ``examples`` in the ``survey_parser`` module to see the baseline examples. Then create your own
-examples and pass them in as the ``replacement_examples`` or ``additional_examples`` parameters to the
-``extract_data()`` function. This will help the LLM to better understand your file format.
+When parsing unstructured files into a structured survey format, a lot can go wrong. If your survey file is not being
+read or parsed well, you might want to simplify the file to make it easier to read. For example:
 
-Tracking and reporting costs
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+1. Make sure that separate modules are in separate sections with clear headings.
 
-The API usage — including cost estimates — is currently output to the console as INFO-level logs, but only for the
-parsing stage. The evaluation stage doesn't currently track or report costs.
+2. Make sure that questions are clearly separated from one another, each with a unique identifier of some kind.
+
+3. Make sure that response options are clearly separated from questions, and that they are clearly associated with the
+   questions they belong to.
+
+4. Label each translation with the same unique question identifier to help link them together. When possible, keep
+   translations together.
+
+Known issues
+^^^^^^^^^^^^
+
+These known issues are inherited from `the ai_workflows package <https://github.com/higherbar-ai/ai-workflows>`_:
+
+#. The example Google Colab notebooks pop up a message during installation that offers to restart the runtime. You have
+   to click cancel so as not to interrupt execution.
+
+#. The automatic generation and caching of JSON schemas (for response validation) can work poorly when batches of
+   similar requests are all launched in parallel (as each request will generate and cache the schema).
+
+#. When reading REDCap data dictionaries, translations aren't supported.
+
+#. LangSmith tracing support is imperfect in a few ways:
+
+   a. For OpenAI models, the top-level token usage counts are roughly doubled. You have to look to the inner LLM call
+      for an accurate count of input and output tokens.
+   b. For Anthropic models, the token usage doesn't show up at all, but you can find it by clicking into the metadata
+      for the inner LLM call.
+   c. For Anthropic models, the system prompt is only visible if you click into the inner LLM call and then switch the
+      *Input* display to *Raw input*.
+   d. For Anthropic models, images in prompts don't show properly.
 
 Roadmap
 -------
 
 There's much that can be improved here. For example:
 
-* We should track and report costs for the evaluation stage of the process.
-* We should generally overhaul the ``survey_parser`` module to better ingest different file formats into
-  raw text that works consistently well for parsing. Better PDF and REDCap support, in particular, would be
-  nice.
+* We should track and report LLM costs.
 * We should add an LLM cache that avoids calling out to the LLM for responses that it already has from prior requests.
   After all, it's common to evaluate the same instrument multiple times, and it's incredibly wasteful to 
   keep going back to the LLM for the same responses every time (for requests that haven't changed in any way).
@@ -157,6 +228,8 @@ To develop locally:
 #. ``python -m venv venv``
 #. ``source venv/bin/activate``
 #. ``pip install -r requirements.txt``
+#. Run the `initial-setup.ipynb <https://github.com/higherbar-ai/survey-eval/blob/main/src/initial-setup.ipynb>`_
+   Jupyter notebook
 
 For convenience, the repo includes ``.idea`` project files for PyCharm.
 
