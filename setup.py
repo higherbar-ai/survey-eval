@@ -19,16 +19,14 @@ with open('README.rst') as file:
 
 setup(
     name='surveyeval',
-    version='0.1.20',
+    version='0.1.21',
     packages=['surveyeval'],
     python_requires='>=3.10',
     install_requires=[
-        'tiktoken',
-        'openai>=1.29.0,<2.0.0',
-        'langchain>=0.1.15,<1.0.0',
-        'langchain-openai>=0.1.6,<1.0.0',
-        'langchain-community>=0.0.17,<1.0.0',
+        'pydantic',
         'overrides~=7.3.1',
+        'openpyxl>=3.0.9,<4.0.0',
+        'py-ai-workflows==0.*'
     ],
     package_data={
         'surveyeval': ['resources/*'], # include resource files in package

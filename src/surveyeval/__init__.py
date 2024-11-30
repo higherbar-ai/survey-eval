@@ -15,6 +15,7 @@
 from .evaluation_engine import EvaluationEngine, EvaluationLens
 from .core_evaluation_lenses import (BiasEvaluationLens, PhrasingEvaluationLens, TranslationEvaluationLens,
                                      ValidatedInstrumentEvaluationLens)
+from .survey_parser import SurveyInterface
 
 # report our current version, as installed
 from importlib.metadata import version

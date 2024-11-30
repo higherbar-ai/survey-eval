@@ -354,12 +354,6 @@ Your job is to respond with your evaluation in JSON format with all of the follo
                 'condition_key': 'Recommendation',
                 'condition_value': 1,
                 'prompt_template': """Are you certain that the Recommendation explanation and Recommendation strength you supplied is correct, and that the two are consistent with one another? If not, please respond with a revised JSON response that revises the recommendation details as appropriate (including all fields). If you have no changes to propose, respond with an empty JSON response of {{}}. Thank you for being careful in your work."""
-            },
-            {
-                'condition_func': EvaluationLens.condition_is_not_in_list,
-                'condition_key': 'Recommendation strength',
-                'condition_value': [1, 2, 3, 4, 5],
-                'prompt_template': """The Recommendation strength should be a number from 1 to 5 to indicate the strength of the recommendation, with 1 being the weakest possible recommendation and 5 being the strongest possible recommendation. Please respond with a revised JSON response that revises the Recommendation strength to be a number from 1 to 5, based on the strength of the recommendation (including all fields). Thank you for being careful in your work."""
             }
         ]
 

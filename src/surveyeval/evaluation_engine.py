@@ -14,16 +14,11 @@
 
 """Core classes for instrument evaluation engine."""
 
-from langchain_openai import ChatOpenAI, AzureChatOpenAI
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.chat_history import InMemoryChatMessageHistory
-from langchain_core.runnables import Runnable
-from langchain_core.runnables.history import RunnableWithMessageHistory
 import re
-import tiktoken
 import asyncio
 import logging
 import copy
+from ai_workflows import LLMInterface, JSONSchemaCache
 
 
 class EvaluationEngine:
@@ -37,28 +32,33 @@ class EvaluationEngine:
     azure_api_key: str
     azure_api_base: str
     azure_api_version: str
+    anthropic_api_key: str
+    bedrock_region: str
+    bedrock_aws_profile: str
+    langsmith_api_key: str
+    langsmith_project: str
+    langsmith_endpoint: str
     tiktoken_model_name: str
-    tokenizer: tiktoken.Encoding
     temperature: float
     max_retries: int
     logger: logging.Logger
     extra_evaluation_instructions: str
 
-    def __init__(self, summarize_model: str, summarize_provider: str, evaluation_model: str, evaluation_provider: str,
-                 openai_api_key: str, azure_api_key: str = "", azure_api_base: str = "", azure_api_version: str = "",
-                 temperature: float = 0.1, tiktoken_model_name: str = "", max_retries: int = 3,
-                 logger: logging.Logger = None, extra_evaluation_instructions: str = ""):
+    def __init__(self, evaluation_model: str = "", evaluation_provider: str = "", openai_api_key: str = "",
+                 azure_api_key: str = "", azure_api_base: str = "", azure_api_version: str = "",
+                 anthropic_api_key: str = None, bedrock_region: str = "us-east-1", bedrock_aws_profile: str = None,
+                 temperature: float = 0.1, max_retries: int = 3, logger: logging.Logger = None,
+                 extra_evaluation_instructions: str = "", langsmith_api_key: str = "",
+                 langsmith_project: str = 'surveyeval', langsmith_endpoint: str = 'https://api.smith.langchain.com',
+                 summarize_model: str = "", summarize_provider: str = "", tiktoken_model_name: str = ""):
         """
         Initialize evaluation engine.
 
-        :param summarize_model: LLM model to use for summarizing multistep conversations (not currently used).
-        :type summarize_model: str
-        :param summarize_provider: Provider name for the summarization model ("openai" or "azure") (not currently used).
-        :type summarize_provider: str
         :param evaluation_model: LLM model to use for instrument evaluation (when using Azure, the
             deployment or engine name must be the same as the model name).
         :type evaluation_model: str
-        :param evaluation_provider: Provider name for the evaluation model ("openai" or "azure").
+        :param evaluation_provider: Provider name for the evaluation model ("openai", "azure", "anthropic", or
+            "bedrock").
         :type evaluation_provider: str
         :param openai_api_key: API key for OpenAI services (if evaluation_provider is "openai").
         :type openai_api_key: str
@@ -68,15 +68,45 @@ class EvaluationEngine:
         :type azure_api_base: str
         :param azure_api_version: Version of the Azure API (if evaluation_provider is "azure").
         :type azure_api_version: str
+        :param anthropic_api_key: API key for Anthropic (if evaluation_provider is "anthropic").
+        :type anthropic_api_key: str
+        :param bedrock_region: AWS Bedrock region (if evaluation_provider is "bedrock"). Default is "us-east-1".
+        :type bedrock_region: str
+        :param bedrock_aws_profile: AWS profile for Bedrock access (if evaluation_provider is "bedrock"). Default is
+            None.
+        :type bedrock_aws_profile: str
         :param temperature: Temperature setting for AI model responses.
         :type temperature: float
-        :param tiktoken_model_name: Name of the model used with TikToken, if different from evaluation_model.
-        :type tiktoken_model_name: str
+        :param max_retries: Maximum number of retries for asking questions.
+        :type max_retries: int
         :param logger: Logger instance for logging messages.
         :type logger: logging.Logger
-        :param extra_evaluation_instructions: Extra evaluation instructions (if any).
+        :param extra_evaluation_instructions: Extra evaluation instructions (optional).
         :type extra_evaluation_instructions: str
+        :param langsmith_api_key: API key for Langsmith services (optional).
+        :type langsmith_api_key: str
+        :param langsmith_project: LangSmith project name. Default is 'surveyeval'.
+        :type langsmith_project: str
+        :param langsmith_endpoint: LangSmith endpoint URL. Default is 'https://api.smith.langchain.com'.
+        :type langsmith_endpoint: str
+        :param summarize_model: LLM model to use for summarizing multistep conversations (not currently used).
+        :type summarize_model: str
+        :param summarize_provider: Provider name for the summarization model ("openai" or "azure") (not currently used).
+        :type summarize_provider: str
+        :param tiktoken_model_name: Name of the model used with TikToken, if different from evaluation_model (not
+            currently used).
+        :type tiktoken_model_name: str
         """
+
+        # complain if no evaluation model, provider, or API key is provided (though Bedrock can use ENV variables)
+        if (not evaluation_model or not evaluation_provider or (evaluation_provider == "openai" and not openai_api_key)
+                or (evaluation_provider == "azure" and not azure_api_key)
+                or (evaluation_provider == "anthropic" and not anthropic_api_key)):
+            raise ValueError("Evaluation model, provider, and API key are required")
+
+        # complain if invalid evaluation provider
+        if evaluation_provider not in ["openai", "azure", "anthropic", "bedrock"]:
+            raise ValueError("Invalid evaluation provider")
 
         # initialize object from constructor parameters
         self.summarize_model = summarize_model
@@ -87,56 +117,23 @@ class EvaluationEngine:
         self.azure_api_key = azure_api_key
         self.azure_api_base = azure_api_base
         self.azure_api_version = azure_api_version
+        self.anthropic_api_key = anthropic_api_key
+        self.bedrock_region = bedrock_region
+        self.bedrock_aws_profile = bedrock_aws_profile
         self.temperature = temperature
+        self.langsmith_api_key = langsmith_api_key
+        self.langsmith_project = langsmith_project
+        self.langsmith_endpoint = langsmith_endpoint
         if not tiktoken_model_name:
             self.tiktoken_model_name = evaluation_model
         else:
             self.tiktoken_model_name = tiktoken_model_name
-        self.tokenizer = tiktoken.encoding_for_model(self.tiktoken_model_name)
         self.max_retries = max_retries
         if not logger:
             self.logger = logging.getLogger(__name__)
         else:
             self.logger = logger
         self.extra_evaluation_instructions = extra_evaluation_instructions
-
-    def tiktoken_len(self, text: str) -> int:
-        """
-        Count the number of tokens in a text string.
-
-        :param text: Text to count tokens in.
-        :type text: str
-        :return: Count of tokens in text.
-        :rtype: int
-        """
-
-        # convert to tokens and return count
-        tokens = self.tokenizer.encode(
-            text,
-            disallowed_special=()
-        )
-        return len(tokens)
-
-    def trim_string(self, s: str, max_tokens: int) -> str:
-        """
-        Trim string as needed to stay within token limit.
-
-        :param s: String to trim.
-        :type s: str
-        :param max_tokens: Maximum number of tokens to allow in string.
-        :type max_tokens: int
-        :return: Trimmed string.
-        :rtype: str
-        """
-
-        # see if the string is over the limit
-        tokens = list(self.tokenizer.encode(s))
-        if len(tokens) > max_tokens:
-            # if so, truncate the tokens list and convert it back to a string
-            tokens = tokens[:max_tokens]
-            s = self.tokenizer.decode(tokens)
-
-        return s
 
     @staticmethod
     def trim_json(json_str: str) -> str:
@@ -181,76 +178,87 @@ class EvaluationEngine:
 
         return s
 
-    def get_chain(self, system_prompt: str = "", starting_chat_history: list[tuple] = None) -> Runnable:
+    def get_llm_interface(self, system_prompt: str = "", starting_chat_history: list[tuple] = None) -> LLMInterface:
         """
-        Get a conversation chain for use in evaluating an instrument.
+        Get an LLM interface for use in evaluating an instrument.
 
-        :param system_prompt: System prompt template to use for the conversation chain.
+        :param system_prompt: System prompt to use for all LLM calls.
         :type system_prompt: str
         :param starting_chat_history: Starting chat history to use for the conversation chain (or None for none).
+            Should be tuples, each with a human and an AI message.
         :type starting_chat_history: list[tuple]
         :return: Runnable conversation chain to use for instrument evaluation.
         :rtype: Runnable
         """
 
-        # initialize evaluation provider
+        # initialize LLM interface based on evaluation provider
         if self.evaluation_provider == "azure":
             # for this Azure implementation, the engine name always has to match the model
-            conversation_llm = AzureChatOpenAI(
-                temperature=self.temperature,
-                verbose=False,
-                model_name=self.evaluation_model,
-                azure_endpoint=self.azure_api_base,
-                openai_api_version=self.azure_api_version,
-                deployment_name=self.evaluation_model,
-                openai_api_key=self.azure_api_key,
-                openai_api_type="azure",
-                tiktoken_model_name=self.tiktoken_model_name,
-                model=self.evaluation_model
-            )
+            llm_interface = LLMInterface(openai_model=self.evaluation_model,
+                                         temperature=self.temperature,
+                                         azure_api_key=self.azure_api_key,
+                                         azure_api_engine=self.evaluation_model,
+                                         azure_api_base=self.azure_api_base,
+                                         azure_api_version=self.azure_api_version,
+                                         langsmith_api_key=self.langsmith_api_key,
+                                         langsmith_project=self.langsmith_project,
+                                         langsmith_endpoint=self.langsmith_endpoint,
+                                         system_prompt=system_prompt,
+                                         maintain_history=True,
+                                         starting_chat_history=starting_chat_history,
+                                         number_of_retries=self.max_retries,
+                                         json_retries=self.max_retries)
+        elif self.evaluation_provider == "openai":
+            llm_interface = LLMInterface(openai_api_key=self.openai_api_key,
+                                         openai_model=self.evaluation_model,
+                                         temperature=self.temperature,
+                                         langsmith_api_key=self.langsmith_api_key,
+                                         langsmith_project=self.langsmith_project,
+                                         langsmith_endpoint=self.langsmith_endpoint,
+                                         system_prompt=system_prompt,
+                                         maintain_history=True,
+                                         starting_chat_history=starting_chat_history,
+                                         number_of_retries=self.max_retries,
+                                         json_retries=self.max_retries)
+        elif self.evaluation_provider == "anthropic":
+            llm_interface = LLMInterface(anthropic_api_key=self.anthropic_api_key,
+                                         anthropic_model=self.evaluation_model,
+                                         temperature=self.temperature,
+                                         langsmith_api_key=self.langsmith_api_key,
+                                         langsmith_project=self.langsmith_project,
+                                         langsmith_endpoint=self.langsmith_endpoint,
+                                         system_prompt=system_prompt,
+                                         maintain_history=True,
+                                         starting_chat_history=starting_chat_history,
+                                         number_of_retries=self.max_retries,
+                                         json_retries=self.max_retries)
+        elif self.evaluation_provider == "bedrock":
+            llm_interface = LLMInterface(bedrock_model=self.evaluation_model,
+                                         bedrock_region=self.bedrock_region,
+                                         bedrock_aws_profile=self.bedrock_aws_profile,
+                                         temperature=self.temperature,
+                                         langsmith_api_key=self.langsmith_api_key,
+                                         langsmith_project=self.langsmith_project,
+                                         langsmith_endpoint=self.langsmith_endpoint,
+                                         system_prompt=system_prompt,
+                                         maintain_history=True,
+                                         starting_chat_history=starting_chat_history,
+                                         number_of_retries=self.max_retries,
+                                         json_retries=self.max_retries)
         else:
-            conversation_llm = ChatOpenAI(
-                verbose=False,
-                temperature=self.temperature,
-                model_name=self.evaluation_model,
-                openai_api_key=self.openai_api_key,
-                tiktoken_model_name=self.tiktoken_model_name
-            )
+            raise ValueError("Invalid evaluation provider")
 
-        # initialize chat history
-        history = InMemoryChatMessageHistory()
-        if starting_chat_history is not None:
-            for (human_message, ai_message) in starting_chat_history:
-                history.add_user_message(human_message)
-                history.add_ai_message(ai_message)
-
-        # create template for chat prompt, including history
-        chat_prompt = ChatPromptTemplate.from_messages(
-            [
-                ("system", system_prompt),
-                ("placeholder", "{chat_history}"),
-                ("human", "{question}"),
-            ]
-        )
-
-        # create and return a runnable chain
-        chain = chat_prompt | conversation_llm.with_structured_output(method="json_mode", include_raw=True)
-        chain_with_history = RunnableWithMessageHistory(chain, lambda x: history, input_messages_key="question",
-                                                        history_messages_key="chat_history",
-                                                        output_messages_key="raw")
-        return chain_with_history
+        return llm_interface
 
     async def a_run_evaluation_chain(self, task_system_prompt: str, question: str, followups: list[dict],
                                      chat_history: list = None) -> dict:
         """
         Run an evaluation chain (asynchronously).
 
-        :param task_system_prompt: System prompt template to use for the evaluation chain. This can include the
-            {survey_context} and {survey_locations} variables to include information about the survey context. It
-            should specify a specific JSON format for all responses.
+        :param task_system_prompt: System prompt to use for the evaluation chain. It should specify a specific JSON
+            format for all responses.
         :type task_system_prompt: str
-        :param question: Initial question to ask, to begin the evaluation chain. This should include the
-            {survey_excerpt} variable to include the appropriate excerpt being evaluated.
+        :param question: Initial question to ask, to begin the evaluation chain.
         :type question: str
         :param followups: List of follow-up questions to ask, based on the JSON response to the initial question.
             Should be a list of dicts, each with a value for each of the following keys:
@@ -271,43 +279,35 @@ class EvaluationEngine:
         """
 
         # initialize new evaluation chain
-        llm_chain = self.get_chain(system_prompt=task_system_prompt, starting_chat_history=chat_history)
+        llm_interface = self.get_llm_interface(system_prompt=task_system_prompt, starting_chat_history=chat_history)
 
         # initialize results
         result_dict = {"result": None, "error": None, "response": None, "history": None}
         full_history = []
 
-        # ask our question to the LLM, retrying the appropriate number of times
-        attempt = 0
-        while True:
-            attempt += 1
-            try:
-                # ask our question and break on success
-                result = await llm_chain.ainvoke({"question": question},
-                                                 config={"configurable": {"session_id": "NA"}})
-                if 'parsed' in result and result['parsed'] is not None:
-                    # if we got a parsed result, break from retry loop
-                    break
-                elif 'parsing_error' in result and result['parsing_error'] is not None:
-                    # if there was a parsing error, raise an exception
-                    raise Exception(f"Error parsing LLM's JSON response: {str(result['parsing_error'])}")
-                else:
-                    # if we got neither an error nor a parsed response, raise an exception
-                    raise Exception("Error parsing LLM's JSON response: no parsed response or error message")
-            except Exception as e:
-                self.logger.error(f"Error occurred asking question (attempt {attempt}): {str(e)}")
-                if attempt < self.max_retries:
-                    # wait before retrying
-                    await asyncio.sleep(5)
-                else:
-                    # maximum attempts reached, return error
-                    result_dict["result"] = "error"
-                    result_dict["error"] = f"Max retries reached on question. Last error: {str(e)}"
-                    return result_dict
+        # use cached JSON schema if available
+        json_output_schema = JSONSchemaCache.get_json_schema(task_system_prompt)
+        # if no cached version available, generate and cache it now, based on the system prompt
+        if not json_output_schema:
+            json_output_schema = await llm_interface.a_generate_json_schema(task_system_prompt)
+            JSONSchemaCache.put_json_schema(task_system_prompt, json_output_schema)
+
+        # ask our question to the LLM
+        try:
+            parsed_response, raw_response, error = await llm_interface.a_get_json_response(
+                question, json_validation_schema=json_output_schema)
+        except Exception as e:
+            result_dict["result"] = "error"
+            result_dict["error"] = str(e)
+            return result_dict
+        if error:
+            result_dict["result"] = "error"
+            result_dict["error"] = error
+            return result_dict
 
         # copy parsed response (because we might update it later), record prompt and response in history
-        response_dict = copy.deepcopy(result['parsed'])
-        json_result = result['raw'].content
+        response_dict = copy.deepcopy(parsed_response)
+        json_result = raw_response
         if chat_history is not None:
             chat_history.append((question, json_result))
         full_history.append([question, json_result])
@@ -316,9 +316,28 @@ class EvaluationEngine:
         result_dict["result"] = "success"
 
         # ask follow-up questions
+        followup_output_schema = ""
         for followup in followups:
+            # if we don't have a follow-up validation schema yet, fetch or generate one
+            if not followup_output_schema:
+                # auto-generate description
+                followup_json_desc = f"""A valid JSON response will be either empty (`{{}}`) or follow this response schema:
+
+```
+{json_output_schema}
+```
+
+Use the `anyOf` keyword in your response, to allow for an empty response (`{{}}`) or a response that follows the schema specified above."""
+                # use cached JSON schema if available
+                followup_output_schema = JSONSchemaCache.get_json_schema(followup_json_desc)
+                # if no cached version available, generate and cache it now, based on the system prompt
+                if not followup_output_schema:
+                    followup_output_schema = await llm_interface.a_generate_json_schema(followup_json_desc)
+                    JSONSchemaCache.put_json_schema(followup_json_desc, followup_output_schema)
+
             followup_result = await self.a_followup_question(**followup, response_dict=response_dict,
-                                                             llm_chain=llm_chain, chat_history=chat_history)
+                                                             llm_chain=llm_interface, chat_history=chat_history,
+                                                             json_validation_schema=followup_output_schema)
 
             # if we actually asked a follow-up and got some kind of response, include it in the history
             if (followup_result["result"] != "skipped" and followup_result["prompt"] is not None
@@ -346,12 +365,10 @@ class EvaluationEngine:
         """
         Run an evaluation chain (synchronously).
 
-        :param task_system_prompt: System prompt template to use for the evaluation chain. This can include the
-            {survey_context} and {survey_locations} variables to include information about the survey context. It
-            should specify a specific JSON format for all responses.
+        :param task_system_prompt: System prompt to use for the evaluation chain. It should specify a specific JSON
+            format for all responses.
         :type task_system_prompt: str
-        :param question: Initial question to ask, to begin the evaluation chain. This should include the
-            {survey_excerpt} variable to include the appropriate excerpt being evaluated.
+        :param question: Initial question to ask, to begin the evaluation chain.
         :type question: str
         :param followups: List of follow-up questions to ask, based on the JSON response to the initial question.
             Should be a list of dicts, each with a value for each of the following keys:
@@ -383,8 +400,8 @@ class EvaluationEngine:
         )
 
     async def a_followup_question(self, condition_func: callable, condition_key: str, condition_value,
-                                  prompt_template: str, response_dict: dict, llm_chain: Runnable,
-                                  chat_history: list = None) -> dict:
+                                  prompt_template: str, response_dict: dict, llm_chain: LLMInterface,
+                                  chat_history: list = None, json_validation_schema: str = "") -> dict:
         """
         Ask a follow-up question (asynchronously).
 
@@ -403,6 +420,8 @@ class EvaluationEngine:
         :type llm_chain: Runnable
         :param chat_history: Chat history to use for the evaluation chain (or None for none).
         :type chat_history: list
+        :param json_validation_schema: JSON schema to use for validating the response.
+        :type json_validation_schema: str
         :return: A dict with result ("success", "error", or "skipped"), error (if result is "error"), prompt (a str),
             response_json (a str), and response (a dict).
         :rtype: dict
@@ -418,44 +437,24 @@ class EvaluationEngine:
             prompt = followup_question.strip()
             result_dict["prompt"] = prompt
 
-            # ask question to the LLM, retrying the appropriate number of times
-            attempt = 0
-            while True:
-                attempt += 1
-                try:
-                    # ask our question and break on success
-                    result = await llm_chain.ainvoke({"question": followup_question},
-                                                     config={"configurable": {"session_id": "NA"}})
-                    if 'raw' in result and result['raw'] is not None and result['raw'].content:
-                        # if there's a raw response, save it for return
-                        result_dict["response_json"] = result['raw'].content
+            # ask question to the LLM
+            try:
+                parsed_response, raw_response, error = await llm_chain.a_get_json_response(
+                    followup_question, json_validation_schema=json_validation_schema)
+            except Exception as e:
+                result_dict["result"] = "error"
+                result_dict["error"] = str(e)
+                return result_dict
+            if error:
+                result_dict["result"] = "error"
+                result_dict["error"] = error
+                return result_dict
 
-                    if 'parsed' in result and result['parsed'] is not None:
-                        # if we got a parsed result, break from retry loop
-                        break
-                    elif 'parsing_error' in result and result['parsing_error'] is not None:
-                        # if there was a parsing error, raise an exception
-                        raise Exception(f"Error parsing LLM's JSON response to follow-up: "
-                                        f"{str(result['parsing_error'])}")
-                    else:
-                        # if we got neither an error nor a parsed response, raise an exception
-                        raise Exception("Error parsing LLM's JSON response to follow-up: no parsed response "
-                                        "or error message")
-                except Exception as e:
-                    self.logger.error(f"Error occurred asking follow-up (attempt {attempt}): {str(e)}")
-                    if attempt < self.max_retries:
-                        # wait before retrying
-                        await asyncio.sleep(5)
-                    else:
-                        # maximum attempts reached, return error
-                        result_dict["result"] = "error"
-                        result_dict["error"] = f"Max retries reached on follow-up question. Last error: {str(e)}"
-                        return result_dict
-
-            # note parsed response, record in history
-            result_dict["response"] = result['parsed']
+            # note response, record in history
+            result_dict["response"] = parsed_response
+            result_dict["response_json"] = raw_response
             result_dict["result"] = "success"
-            if chat_history is not None and result_dict["response_json"] is not None:
+            if chat_history is not None and result_dict["response_json"]:
                 chat_history.append((followup_question, result_dict["response_json"]))
         else:
             result_dict["result"] = "skipped"
