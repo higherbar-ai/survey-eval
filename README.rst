@@ -194,13 +194,13 @@ There's much that can be improved here. For example:
 * We should improve the output format to be more user-friendly. (For example, a direct Word output with comments and 
   tracked changes would be very nice).
 * We should add more evaluation lenses. For example:
-  * Double-barreled questions: Does any question ask about two things at once?
-  * Leading questions: Are questions neutral and don’t lead the respondent towards a particular answer?
-  * Response options: Are the response options exhaustive and mutually exclusive?
-  * Question order effects: The order in which questions appear can influence how respondents interpret and answer subsequent items. It's essential to evaluate if any questions might be leading or priming respondents in a way that could bias their subsequent answers.
-  * Consistency: Are scales used consistently throughout the survey?
-  * Reliability and validity: If established scales are used, have they been validated for the target population?
-  * Length and respondent burden: Is the survey too long? Long surveys can lead to respondent fatigue, which in turn might lead to decreased accuracy or increased drop-out rates.
+    * Double-barreled questions: Does any question ask about two things at once?
+    * Leading questions: Are questions neutral and don’t lead the respondent towards a particular answer?
+    * Response options: Are the response options exhaustive and mutually exclusive?
+    * Question order effects: The order in which questions appear can influence how respondents interpret and answer subsequent items. It's essential to evaluate if any questions might be leading or priming respondents in a way that could bias their subsequent answers.
+    * Consistency: Are scales used consistently throughout the survey?
+    * Reliability and validity: If established scales are used, have they been validated for the target population?
+    * Length and respondent burden: Is the survey too long? Long surveys can lead to respondent fatigue, which in turn might lead to decreased accuracy or increased drop-out rates.
 * Ideally, we would parse modules into logical sub-modules that appear to measure a single construct, so that we can
   better evaluate whether to recommend adaptation of validated instruments. Right now, an entire module is evaluated
   at once, but modules often contain measurement of multiple constructs.
