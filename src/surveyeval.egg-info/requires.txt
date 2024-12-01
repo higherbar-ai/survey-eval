@@ -1,4 +1,4 @@
 pydantic
 overrides<8.0.0,>=7.3.1
 openpyxl<4.0.0,>=3.0.9
-py-ai-workflows<1.0.0,>=0.17.0
+py-ai-workflows<1.0.0,>=0.18.0
