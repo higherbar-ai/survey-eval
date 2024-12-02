@@ -127,7 +127,7 @@ Remember:
                  langsmith_project: str = 'surveyeval', langsmith_endpoint: str = 'https://api.smith.langchain.com',
                  json_retries: int = 2, anthropic_api_key: str = None, anthropic_model: str = None,
                  bedrock_model: str = None, bedrock_region: str = "us-east-1", bedrock_aws_profile: str = None,
-                 max_tokens: int = None):
+                 max_tokens: int = 4096):
         """
         Initialize a new survey interface with an LLM to help parse survey contents. Must supply LLM parameters for
         OpenAI (direct or via Azure) or Anthropic (direct or via AWS Bedrock).
@@ -171,8 +171,7 @@ Remember:
         :type bedrock_region: str
         :param bedrock_aws_profile: AWS profile for Bedrock access. Default is None.
         :type bedrock_aws_profile: str
-        :param max_tokens: Maximum tokens for LLM responses. Default is None, which auto-sets to 16384 for OpenAI and
-            4096 for Anthropic.
+        :param max_tokens: Maximum tokens for LLM responses. Default is 4096.
         :type max_tokens: int
         """
 
