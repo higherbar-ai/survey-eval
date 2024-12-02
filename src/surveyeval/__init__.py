@@ -20,8 +20,8 @@ try:
 except ImportError as e:
     # we expect an import error if the optional dependencies are not installed
     SurveyInterface = None
-    print(f"Warning: surveyeval.survey_parser module not loaded; you probably need to "
-          f"pip install surveyeval[parser] to install necessary dependencies. Import exception: {e}")
+    print(f"FYI: surveyeval.survey_parser module not loaded; if you want to parse survey documents, you'll need to "
+          f"pip install surveyeval[parser] to install the necessary dependencies. Import exception: {e}")
 
 # report our current version, as installed
 from importlib.metadata import version
