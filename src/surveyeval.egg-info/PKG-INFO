@@ -1,6 +1,6 @@
 Metadata-Version: 2.1
 Name: surveyeval
-Version: 0.1.24
+Version: 0.1.25
 Summary: A toolkit for survey evaluation
 Home-page: https://github.com/higherbar-ai/survey-eval
 Author: Christopher Robert
@@ -11,8 +11,10 @@ Requires-Python: >=3.10
 License-File: LICENSE
 Requires-Dist: pydantic
 Requires-Dist: overrides<8.0.0,>=7.3.1
-Requires-Dist: openpyxl<4.0.0,>=3.0.9
-Requires-Dist: py-ai-workflows<1.0.0,>=0.18.0
+Requires-Dist: py-ai-workflows<1.0.0,>=0.20.0
+Provides-Extra: parser
+Requires-Dist: openpyxl<4.0.0,>=3.0.9; extra == "parser"
+Requires-Dist: py-ai-workflows[docs]<1.0.0,>=0.20.0; extra == "parser"
 
 ==========
 surveyeval
@@ -25,11 +27,20 @@ but is ready to support piloting and experimentation. To learn more about the ov
 Installation
 ------------
 
-Install the latest version with pip::
+Install the full version with pip::
+
+    pip install surveyeval[parser]
+
+If you don't need anything in the ``survey_parser`` module (relating to reading, parsing, and converting
+survey files), you can install a slimmed-down version with::
 
     pip install surveyeval
 
-You'll also need to install several other dependencies, which you can do by running the
+Additional document-parsing dependencies
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+If you installed the full version with survey-parsing capabilities (``surveyeval[parsing]``), you'll also need
+to install several other dependencies, which you can do by running the
 `initial-setup.ipynb <https://github.com/higherbar-ai/survey-eval/blob/main/src/initial-setup.ipynb>`_ Jupyter
 notebook — or by installing them manually as follows.
 
@@ -55,6 +66,9 @@ Then install ``libreoffice`` for converting Office documents to PDF.
 
     # install LibreOffice for document processing
     choco install -y libreoffice
+
+AWS Bedrock support
+^^^^^^^^^^^^^^^^^^^
 
 Finally, if you're accessing models via AWS Bedrock, the AWS CLI needs to be installed and configured for AWS access.
 

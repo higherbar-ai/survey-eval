@@ -9,11 +9,20 @@ but is ready to support piloting and experimentation. To learn more about the ov
 Installation
 ------------
 
-Install the latest version with pip::
+Install the full version with pip::
+
+    pip install surveyeval[parser]
+
+If you don't need anything in the ``survey_parser`` module (relating to reading, parsing, and converting
+survey files), you can install a slimmed-down version with::
 
     pip install surveyeval
 
-You'll also need to install several other dependencies, which you can do by running the
+Additional document-parsing dependencies
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+If you installed the full version with survey-parsing capabilities (``surveyeval[parsing]``), you'll also need
+to install several other dependencies, which you can do by running the
 `initial-setup.ipynb <https://github.com/higherbar-ai/survey-eval/blob/main/src/initial-setup.ipynb>`_ Jupyter
 notebook — or by installing them manually as follows.
 
@@ -39,6 +48,9 @@ Then install ``libreoffice`` for converting Office documents to PDF.
 
     # install LibreOffice for document processing
     choco install -y libreoffice
+
+AWS Bedrock support
+^^^^^^^^^^^^^^^^^^^
 
 Finally, if you're accessing models via AWS Bedrock, the AWS CLI needs to be installed and configured for AWS access.
 

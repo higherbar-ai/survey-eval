@@ -15,7 +15,13 @@
 from .evaluation_engine import EvaluationEngine, EvaluationLens
 from .core_evaluation_lenses import (BiasEvaluationLens, PhrasingEvaluationLens, TranslationEvaluationLens,
                                      ValidatedInstrumentEvaluationLens)
-from .survey_parser import SurveyInterface
+try:
+    from .survey_parser import SurveyInterface
+except ImportError as e:
+    # we expect an import error if the optional dependencies are not installed
+    SurveyInterface = None
+    print(f"Warning: surveyeval.survey_parser module not loaded; you probably need to "
+          f"pip install surveyeval[parser] to install necessary dependencies. Import exception: {e}")
 
 # report our current version, as installed
 from importlib.metadata import version
