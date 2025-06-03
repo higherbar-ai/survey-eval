@@ -19,7 +19,7 @@ with open('README.rst') as file:
 
 setup(
     name='surveyeval',
-    version='0.1.26',
+    version='0.1.27',
     packages=['surveyeval'],
     python_requires='>=3.10',
     install_requires=[

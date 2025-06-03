@@ -14,9 +14,9 @@ sys.path.insert(0, os.path.abspath('../../src'))
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
 project = 'surveyeval'
-copyright = '2024, Higher Bar AI, PBC'
+copyright = '2025, Higher Bar AI, PBC'
 author = 'Higher Bar AI, PBC'
-release = '0.1.26'
+release = '0.1.27'
 
 
 # -- General configuration ---------------------------------------------------
