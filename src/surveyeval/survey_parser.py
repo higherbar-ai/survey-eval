@@ -18,6 +18,7 @@ import os
 import logging
 import csv
 import re
+from typing import List, Dict
 import importlib.resources as pkg_resources
 from openpyxl import load_workbook
 from ai_workflows.document_utilities import DocumentInterface
@@ -450,10 +451,11 @@ Remember:
                             questions = {name: []}
 
                             # add item for base language first
+                            options_list: List[Dict[str, str]] = []
                             item = {
                                 "question": label,
                                 "language": default_language,
-                                "options": [],
+                                "options": options_list,
                                 "instructions": hint
                             }
                             # if the type is "select_one" or "select_multiple", add the choices
@@ -464,7 +466,7 @@ Remember:
                                 for choice in choices_data:
                                     if choice[choices_columns['list_name']] == list_name:
                                         # add options one by one
-                                        item["options"].append({
+                                        options_list.append({
                                             "label": str(choice[choices_columns['label']]).strip(),
                                             "value": str(choice[choices_columns['value']]).strip()
                                         })

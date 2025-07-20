@@ -18,6 +18,7 @@ import re
 import asyncio
 import logging
 import copy
+from typing import Dict, Any
 from ai_workflows import LLMInterface, JSONSchemaCache
 
 
@@ -282,7 +283,7 @@ class EvaluationEngine:
         llm_interface = self.get_llm_interface(system_prompt=task_system_prompt, starting_chat_history=chat_history)
 
         # initialize results
-        result_dict = {"result": None, "error": None, "response": None, "history": None}
+        result_dict: Dict[str, Any] = {"result": None, "error": None, "response": None, "history": None}
         full_history = []
 
         # use cached JSON schema if available
@@ -428,7 +429,13 @@ Use the `anyOf` keyword in your response, to allow for an empty response (`{{}}`
         """
 
         # initialize results
-        result_dict = {"result": None, "error": None, "prompt": None, "response_json": None, "response": None}
+        result_dict: Dict[str, Any] = {
+            "result": None,
+            "error": None,
+            "prompt": None,
+            "response_json": None,
+            "response": None
+        }
 
         # check to see if we meet the criteria for this follow-up
         if condition_func(response_dict, condition_key, condition_value):
