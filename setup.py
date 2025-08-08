@@ -19,7 +19,7 @@ with open('README.rst') as file:
 
 setup(
     name='surveyeval',
-    version='0.1.27',
+    version='0.1.28',
     packages=['surveyeval'],
     python_requires='>=3.10',
     install_requires=[
@@ -30,7 +30,7 @@ setup(
     extras_require={
         'parser': [
             'openpyxl>=3.0.9,<4.0.0',
-            'py-ai-workflows[docs]>=0.20.0,<1.0.0'
+            'py-ai-workflows[docs]>=0.29.0,<1.0.0'
         ]
     },
     package_data={

@@ -4,4 +4,4 @@ py-ai-workflows<1.0.0,>=0.20.0
 
 [parser]
 openpyxl<4.0.0,>=3.0.9
-py-ai-workflows[docs]<1.0.0,>=0.20.0
+py-ai-workflows[docs]<1.0.0,>=0.29.0
