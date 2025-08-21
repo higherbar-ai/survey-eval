@@ -177,6 +177,8 @@ Known issues
 
 These known issues are inherited from `the ai_workflows package <https://github.com/higherbar-ai/ai-workflows>`_:
 
+#. OpenAI's `o1-mini` model is not currently supported.
+
 #. The example Google Colab notebooks pop up a message during installation that offers to restart the runtime. You have
    to click cancel so as not to interrupt execution.
 

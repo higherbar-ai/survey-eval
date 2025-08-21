@@ -1,6 +1,6 @@
 Metadata-Version: 2.1
 Name: surveyeval
-Version: 0.1.28
+Version: 0.1.29
 Summary: A toolkit for survey evaluation
 Home-page: https://github.com/higherbar-ai/survey-eval
 Author: Christopher Robert
@@ -11,10 +11,10 @@ Requires-Python: >=3.10
 License-File: LICENSE
 Requires-Dist: pydantic
 Requires-Dist: overrides<8.0.0,>=7.3.1
-Requires-Dist: py-ai-workflows<1.0.0,>=0.20.0
+Requires-Dist: py-ai-workflows<1.0.0,>=0.30.0
 Provides-Extra: parser
 Requires-Dist: openpyxl<4.0.0,>=3.0.9; extra == "parser"
-Requires-Dist: py-ai-workflows[docs]<1.0.0,>=0.29.0; extra == "parser"
+Requires-Dist: py-ai-workflows[docs]<1.0.0,>=0.30.0; extra == "parser"
 
 ==========
 surveyeval
@@ -194,6 +194,8 @@ Known issues
 ^^^^^^^^^^^^
 
 These known issues are inherited from `the ai_workflows package <https://github.com/higherbar-ai/ai-workflows>`_:
+
+#. OpenAI's `o1-mini` model is not currently supported.
 
 #. The example Google Colab notebooks pop up a message during installation that offers to restart the runtime. You have
    to click cancel so as not to interrupt execution.
