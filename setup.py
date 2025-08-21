@@ -25,12 +25,12 @@ setup(
     install_requires=[
         'pydantic',
         'overrides>=7.3.1,<8.0.0',
-        'py-ai-workflows>=0.20.0,<1.0.0'
+        'py-ai-workflows>=0.30.0,<1.0.0'
     ],
     extras_require={
         'parser': [
             'openpyxl>=3.0.9,<4.0.0',
-            'py-ai-workflows[docs]>=0.29.0,<1.0.0'
+            'py-ai-workflows[docs]>=0.30.0,<1.0.0'
         ]
     },
     package_data={

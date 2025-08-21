@@ -1,4 +1,4 @@
-Metadata-Version: 2.1
+Metadata-Version: 2.4
 Name: surveyeval
 Version: 0.1.28
 Summary: A toolkit for survey evaluation
@@ -11,10 +11,21 @@ Requires-Python: >=3.10
 License-File: LICENSE
 Requires-Dist: pydantic
 Requires-Dist: overrides<8.0.0,>=7.3.1
-Requires-Dist: py-ai-workflows<1.0.0,>=0.20.0
+Requires-Dist: py-ai-workflows<1.0.0,>=0.30.0
 Provides-Extra: parser
 Requires-Dist: openpyxl<4.0.0,>=3.0.9; extra == "parser"
-Requires-Dist: py-ai-workflows[docs]<1.0.0,>=0.29.0; extra == "parser"
+Requires-Dist: py-ai-workflows[docs]<1.0.0,>=0.30.0; extra == "parser"
+Dynamic: author
+Dynamic: author-email
+Dynamic: description
+Dynamic: home-page
+Dynamic: license
+Dynamic: license-file
+Dynamic: project-url
+Dynamic: provides-extra
+Dynamic: requires-dist
+Dynamic: requires-python
+Dynamic: summary
 
 ==========
 surveyeval
