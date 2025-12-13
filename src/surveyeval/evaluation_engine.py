@@ -41,6 +41,7 @@ class EvaluationEngine:
     langsmith_endpoint: str
     tiktoken_model_name: str
     temperature: float
+    reasoning_effort: str
     max_retries: int
     logger: logging.Logger
     extra_evaluation_instructions: str
@@ -48,8 +49,8 @@ class EvaluationEngine:
     def __init__(self, evaluation_model: str = "", evaluation_provider: str = "", openai_api_key: str = "",
                  azure_api_key: str = "", azure_api_base: str = "", azure_api_version: str = "",
                  anthropic_api_key: str = None, bedrock_region: str = "us-east-1", bedrock_aws_profile: str = None,
-                 temperature: float = 0.1, max_retries: int = 3, logger: logging.Logger = None,
-                 extra_evaluation_instructions: str = "", langsmith_api_key: str = "",
+                 temperature: float = 0.1, reasoning_effort: str = None, max_retries: int = 3,
+                 logger: logging.Logger = None, extra_evaluation_instructions: str = "", langsmith_api_key: str = "",
                  langsmith_project: str = 'surveyeval', langsmith_endpoint: str = 'https://api.smith.langchain.com',
                  summarize_model: str = "", summarize_provider: str = "", tiktoken_model_name: str = ""):
         """
@@ -78,6 +79,9 @@ class EvaluationEngine:
         :type bedrock_aws_profile: str
         :param temperature: Temperature setting for AI model responses.
         :type temperature: float
+        :param reasoning_effort: Reasoning effort setting for AI model responses (e.g., "low", "medium", "high").
+            Only supported by certain models. Default is None.
+        :type reasoning_effort: str
         :param max_retries: Maximum number of retries for asking questions.
         :type max_retries: int
         :param logger: Logger instance for logging messages.
@@ -122,6 +126,7 @@ class EvaluationEngine:
         self.bedrock_region = bedrock_region
         self.bedrock_aws_profile = bedrock_aws_profile
         self.temperature = temperature
+        self.reasoning_effort = reasoning_effort
         self.langsmith_api_key = langsmith_api_key
         self.langsmith_project = langsmith_project
         self.langsmith_endpoint = langsmith_endpoint
@@ -197,6 +202,7 @@ class EvaluationEngine:
             # for this Azure implementation, the engine name always has to match the model
             llm_interface = LLMInterface(openai_model=self.evaluation_model,
                                          temperature=self.temperature,
+                                         reasoning_effort=self.reasoning_effort,
                                          azure_api_key=self.azure_api_key,
                                          azure_api_engine=self.evaluation_model,
                                          azure_api_base=self.azure_api_base,
@@ -213,6 +219,7 @@ class EvaluationEngine:
             llm_interface = LLMInterface(openai_api_key=self.openai_api_key,
                                          openai_model=self.evaluation_model,
                                          temperature=self.temperature,
+                                         reasoning_effort=self.reasoning_effort,
                                          langsmith_api_key=self.langsmith_api_key,
                                          langsmith_project=self.langsmith_project,
                                          langsmith_endpoint=self.langsmith_endpoint,
@@ -225,6 +232,7 @@ class EvaluationEngine:
             llm_interface = LLMInterface(anthropic_api_key=self.anthropic_api_key,
                                          anthropic_model=self.evaluation_model,
                                          temperature=self.temperature,
+                                         reasoning_effort=self.reasoning_effort,
                                          langsmith_api_key=self.langsmith_api_key,
                                          langsmith_project=self.langsmith_project,
                                          langsmith_endpoint=self.langsmith_endpoint,
@@ -238,6 +246,7 @@ class EvaluationEngine:
                                          bedrock_region=self.bedrock_region,
                                          bedrock_aws_profile=self.bedrock_aws_profile,
                                          temperature=self.temperature,
+                                         reasoning_effort=self.reasoning_effort,
                                          langsmith_api_key=self.langsmith_api_key,
                                          langsmith_project=self.langsmith_project,
                                          langsmith_endpoint=self.langsmith_endpoint,
