@@ -122,7 +122,8 @@ Remember:
 """
 
     def __init__(self, openai_api_key: str = None, openai_model: str = None,
-                 temperature: float = 0.0, total_response_timeout_seconds: int = 600, number_of_retries: int = 2,
+                 temperature: float = 0.0, reasoning_effort: str = None,
+                 total_response_timeout_seconds: int = 600, number_of_retries: int = 2,
                  seconds_between_retries: int = 5, azure_api_key: str = None, azure_api_engine: str = None,
                  azure_api_base: str = None, azure_api_version: str = None, langsmith_api_key: str = None,
                  langsmith_project: str = 'surveyeval', langsmith_endpoint: str = 'https://api.smith.langchain.com',
@@ -139,6 +140,9 @@ Remember:
         :type openai_model: str
         :param temperature: Temperature setting for the LLM. Default is 0.0.
         :type temperature: float
+        :param reasoning_effort: Reasoning effort setting for the LLM (e.g., "low", "medium", "high").
+            Only supported by certain models. Default is None.
+        :type reasoning_effort: str
         :param total_response_timeout_seconds: Timeout for LLM responses in seconds. Default is 600.
         :type total_response_timeout_seconds: int
         :param number_of_retries: Number of retries for LLM calls. Default is 2.
@@ -179,6 +183,7 @@ Remember:
         # initialize LLM and document interfaces
         self.llm_interface = LLMInterface(openai_api_key=openai_api_key, openai_model=openai_model,
                                           temperature=temperature,
+                                          reasoning_effort=reasoning_effort,
                                           total_response_timeout_seconds=total_response_timeout_seconds,
                                           number_of_retries=number_of_retries,
                                           seconds_between_retries=seconds_between_retries,
