@@ -23,6 +23,16 @@ except ImportError as e:
     print(f"FYI: surveyeval.survey_parser module not loaded; if you want to parse survey documents, you'll need to "
           f"pip install surveyeval[parser] to install the necessary dependencies. Import exception: {e}")
 
+__all__ = [
+    "EvaluationEngine",
+    "EvaluationLens",
+    "BiasEvaluationLens",
+    "PhrasingEvaluationLens",
+    "TranslationEvaluationLens",
+    "ValidatedInstrumentEvaluationLens",
+    "SurveyInterface",
+]
+
 # report our current version, as installed
 from importlib.metadata import version
 try:
