@@ -14,6 +14,7 @@
 
 """Core set of instrument evaluation lenses."""
 
+from typing import Optional
 from surveyeval import EvaluationEngine, EvaluationLens
 from overrides import overrides
 import json
@@ -119,7 +120,7 @@ Consider whether you made any mistakes or neglected any instructions in your ori
                          lens_eval_description)
 
     @overrides
-    def evaluate(self, chat_history: list = None, survey_context: str = "", survey_locations: str = "",
+    def evaluate(self, chat_history: Optional[list] = None, survey_context: str = "", survey_locations: str = "",
                  survey_excerpt: str = "", survey_question: str = "", **kwargs) \
             -> dict:
         """
@@ -149,7 +150,8 @@ Consider whether you made any mistakes or neglected any instructions in your ori
                                 survey_question=EvaluationEngine.clean_whitespace(survey_question), **kwargs)
 
     @overrides
-    async def a_evaluate(self, chat_history: list = None, survey_context: str = "", survey_locations: str = "",
+    async def a_evaluate(self, chat_history: Optional[list] = None, survey_context: str = "",
+                         survey_locations: str = "",
                          survey_excerpt: str = "", survey_question: str = "", **kwargs) \
             -> dict:
         """
@@ -362,7 +364,7 @@ Your job is to respond with your evaluation in JSON format with all of the follo
                          lens_eval_description)
 
     @overrides
-    def evaluate(self, chat_history: list = None, survey_context: str = "", survey_locations: str = "",
+    def evaluate(self, chat_history: Optional[list] = None, survey_context: str = "", survey_locations: str = "",
                  survey_excerpt: str = "", **kwargs) -> dict:
         """
         Override default evaluate method.
@@ -388,7 +390,8 @@ Your job is to respond with your evaluation in JSON format with all of the follo
                                 survey_excerpt=EvaluationEngine.clean_whitespace(survey_excerpt), **kwargs)
 
     @overrides
-    async def a_evaluate(self, chat_history: list = None, survey_context: str = "", survey_locations: str = "",
+    async def a_evaluate(self, chat_history: Optional[list] = None, survey_context: str = "",
+                         survey_locations: str = "",
                          survey_excerpt: str = "", **kwargs) -> dict:
         """
         Override default a_evaluate method.
@@ -612,7 +615,7 @@ Respond in JSON format with all of the following fields:
                          lens_eval_description)
 
     @overrides
-    def evaluate(self, chat_history: list = None, survey_context: str = "", survey_locations: str = "",
+    def evaluate(self, chat_history: Optional[list] = None, survey_context: str = "", survey_locations: str = "",
                  survey_excerpt: str = "", **kwargs) -> dict:
         """
         Override default evaluate method.
@@ -638,7 +641,8 @@ Respond in JSON format with all of the following fields:
                                 survey_excerpt=EvaluationEngine.clean_whitespace(survey_excerpt), **kwargs)
 
     @overrides
-    async def a_evaluate(self, chat_history: list = None, survey_context: str = "", survey_locations: str = "",
+    async def a_evaluate(self, chat_history: Optional[list] = None, survey_context: str = "",
+                         survey_locations: str = "",
                          survey_excerpt: str = "", **kwargs) -> dict:
         """
         Override default a_evaluate method.
@@ -823,7 +827,7 @@ Respond in JSON format with all of the following fields:
                          lens_eval_description)
 
     @overrides
-    def evaluate(self, chat_history: list = None, survey_context: str = "", survey_locations: str = "",
+    def evaluate(self, chat_history: Optional[list] = None, survey_context: str = "", survey_locations: str = "",
                  survey_excerpt: str = "", **kwargs) -> dict:
         """
         Override default evaluate method.
@@ -849,7 +853,8 @@ Respond in JSON format with all of the following fields:
                                 survey_excerpt=EvaluationEngine.clean_whitespace(survey_excerpt), **kwargs)
 
     @overrides
-    async def a_evaluate(self, chat_history: list = None, survey_context: str = "", survey_locations: str = "",
+    async def a_evaluate(self, chat_history: Optional[list] = None, survey_context: str = "",
+                         survey_locations: str = "",
                          survey_excerpt: str = "", **kwargs) -> dict:
         """
         Override default a_evaluate method.

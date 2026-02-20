@@ -1,0 +1,7 @@
+{
+  "exclude": [
+    "build",
+    "dist",
+    "venv"
+  ]
+}

@@ -18,7 +18,7 @@ import os
 import logging
 import csv
 import re
-from typing import List, Dict
+from typing import List, Dict, Optional
 import importlib.resources as pkg_resources
 from openpyxl import load_workbook
 from ai_workflows.document_utilities import DocumentInterface
@@ -32,8 +32,8 @@ empty_form_path = str(pkg_resources.files('surveyeval').joinpath('resources/Empt
 class SurveyInterface:
     """Interface for interacting with surveys."""
 
-    llm_interface: LLMInterface = None
-    doc_interface: DocumentInterface = None
+    llm_interface: Optional[LLMInterface] = None
+    doc_interface: Optional[DocumentInterface] = None
 
     PARSING_JOB: str = """Your job is to extract survey questions or form fields from the file's content, organized by module, and to return it all in a specific JSON format. More specifically:
 
@@ -121,14 +121,18 @@ Remember:
 }
 """
 
-    def __init__(self, openai_api_key: str = None, openai_model: str = None,
-                 temperature: float = 0.0, reasoning_effort: str = None,
+    def __init__(self, openai_api_key: Optional[str] = None, openai_model: Optional[str] = None,
+                 temperature: float = 0.0, reasoning_effort: Optional[str] = None,
                  total_response_timeout_seconds: int = 600, number_of_retries: int = 2,
-                 seconds_between_retries: int = 5, azure_api_key: str = None, azure_api_engine: str = None,
-                 azure_api_base: str = None, azure_api_version: str = None, langsmith_api_key: str = None,
+                 seconds_between_retries: int = 5, azure_api_key: Optional[str] = None,
+                 azure_api_engine: Optional[str] = None,
+                 azure_api_base: Optional[str] = None, azure_api_version: Optional[str] = None,
+                 langsmith_api_key: Optional[str] = None,
                  langsmith_project: str = 'surveyeval', langsmith_endpoint: str = 'https://api.smith.langchain.com',
-                 json_retries: int = 2, anthropic_api_key: str = None, anthropic_model: str = None,
-                 bedrock_model: str = None, bedrock_region: str = "us-east-1", bedrock_aws_profile: str = None,
+                 json_retries: int = 2, anthropic_api_key: Optional[str] = None,
+                 anthropic_model: Optional[str] = None,
+                 bedrock_model: Optional[str] = None, bedrock_region: str = "us-east-1",
+                 bedrock_aws_profile: Optional[str] = None,
                  max_tokens: int = 4096):
         """
         Initialize a new survey interface with an LLM to help parse survey contents. Must supply LLM parameters for
@@ -228,6 +232,7 @@ Remember:
 
         # otherwise, convert the file to Markdown format and return that
         if use_llm:
+            assert self.doc_interface is not None
             return self.doc_interface.convert_to_markdown(file_path)
         else:
             doc_interface_no_llm = DocumentInterface()
@@ -260,6 +265,7 @@ Remember:
         full_context = "The file contains a survey instrument or digital form."
         if survey_context:
             full_context += f" Additional context: {survey_context}"
+        assert self.doc_interface is not None
         parsed_data = self.doc_interface.markdown_to_json(markdown=survey_contents,
                                                           json_context=full_context,
                                                           json_job=self.PARSING_JOB,
@@ -544,7 +550,7 @@ Remember:
                 reader = csv.DictReader(csvfile)
 
                 # assume REDCap data dictionary format if "Field Type" column is present
-                if 'Field Type' in reader.fieldnames:
+                if reader.fieldnames is not None and 'Field Type' in reader.fieldnames:
                     # process REDCap data dictionary
                     all_questions = {}
                     for row in reader:

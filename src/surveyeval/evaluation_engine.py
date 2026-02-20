@@ -18,7 +18,7 @@ import re
 import asyncio
 import logging
 import copy
-from typing import Dict, Any
+from typing import Callable, Dict, Any, Optional
 from ai_workflows import LLMInterface, JSONSchemaCache
 
 
@@ -33,24 +33,26 @@ class EvaluationEngine:
     azure_api_key: str
     azure_api_base: str
     azure_api_version: str
-    anthropic_api_key: str
+    anthropic_api_key: Optional[str]
     bedrock_region: str
-    bedrock_aws_profile: str
+    bedrock_aws_profile: Optional[str]
     langsmith_api_key: str
     langsmith_project: str
     langsmith_endpoint: str
     tiktoken_model_name: str
     temperature: float
-    reasoning_effort: str
+    reasoning_effort: Optional[str]
     max_retries: int
     logger: logging.Logger
     extra_evaluation_instructions: str
 
     def __init__(self, evaluation_model: str = "", evaluation_provider: str = "", openai_api_key: str = "",
                  azure_api_key: str = "", azure_api_base: str = "", azure_api_version: str = "",
-                 anthropic_api_key: str = None, bedrock_region: str = "us-east-1", bedrock_aws_profile: str = None,
-                 temperature: float = 0.1, reasoning_effort: str = None, max_retries: int = 3,
-                 logger: logging.Logger = None, extra_evaluation_instructions: str = "", langsmith_api_key: str = "",
+                 anthropic_api_key: Optional[str] = None, bedrock_region: str = "us-east-1",
+                 bedrock_aws_profile: Optional[str] = None,
+                 temperature: float = 0.1, reasoning_effort: Optional[str] = None, max_retries: int = 3,
+                 logger: Optional[logging.Logger] = None, extra_evaluation_instructions: str = "",
+                 langsmith_api_key: str = "",
                  langsmith_project: str = 'surveyeval', langsmith_endpoint: str = 'https://api.smith.langchain.com',
                  summarize_model: str = "", summarize_provider: str = "", tiktoken_model_name: str = ""):
         """
@@ -184,7 +186,8 @@ class EvaluationEngine:
 
         return s
 
-    def get_llm_interface(self, system_prompt: str = "", starting_chat_history: list[tuple] = None) -> LLMInterface:
+    def get_llm_interface(self, system_prompt: str = "",
+                          starting_chat_history: Optional[list[tuple]] = None) -> LLMInterface:
         """
         Get an LLM interface for use in evaluating an instrument.
 
@@ -261,7 +264,7 @@ class EvaluationEngine:
         return llm_interface
 
     async def a_run_evaluation_chain(self, task_system_prompt: str, question: str, followups: list[dict],
-                                     chat_history: list = None) -> dict:
+                                     chat_history: Optional[list] = None) -> dict:
         """
         Run an evaluation chain (asynchronously).
 
@@ -316,7 +319,7 @@ class EvaluationEngine:
             return result_dict
 
         # copy parsed response (because we might update it later), record prompt and response in history
-        response_dict = copy.deepcopy(parsed_response)
+        response_dict: dict = copy.deepcopy(parsed_response) if parsed_response is not None else {}
         json_result = raw_response
         if chat_history is not None:
             chat_history.append((question, json_result))
@@ -371,7 +374,7 @@ Use the `anyOf` keyword in your response, to allow for an empty response (`{{}}`
         return result_dict
 
     def run_evaluation_chain(self, task_system_prompt: str, question: str, followups: list[dict],
-                             chat_history: list = None) -> dict:
+                             chat_history: Optional[list] = None) -> dict:
         """
         Run an evaluation chain (synchronously).
 
@@ -409,9 +412,10 @@ Use the `anyOf` keyword in your response, to allow for an empty response (`{{}}`
             )
         )
 
-    async def a_followup_question(self, condition_func: callable, condition_key: str, condition_value,
-                                  prompt_template: str, response_dict: dict, llm_chain: LLMInterface,
-                                  chat_history: list = None, json_validation_schema: str = "") -> dict:
+    async def a_followup_question(self, condition_func: Callable, condition_key: str, condition_value,
+                                   prompt_template: str, response_dict: dict, llm_chain: LLMInterface,
+                                   chat_history: Optional[list] = None,
+                                   json_validation_schema: str = "") -> dict:
         """
         Ask a follow-up question (asynchronously).
 
@@ -530,7 +534,7 @@ class EvaluationLens:
         self.evaluation_engine = evaluation_engine
         self.evaluation_result = {}
 
-    def evaluate(self, chat_history: list = None, **kwargs) -> dict:
+    def evaluate(self, chat_history: Optional[list] = None, **kwargs) -> dict:
         """
         Run an evaluation chain (synchronously).
 
@@ -551,7 +555,7 @@ class EvaluationLens:
             followups=self.followups, chat_history=chat_history)
         return self.evaluation_result
     
-    async def a_evaluate(self, chat_history: list = None, **kwargs) -> dict:
+    async def a_evaluate(self, chat_history: Optional[list] = None, **kwargs) -> dict:
         """
         Run an evaluation chain (asynchronously).
 
