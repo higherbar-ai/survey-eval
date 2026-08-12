@@ -1,3 +1,7 @@
+.. note::
+
+   Higher Bar AI is now proudly a part of Dobility, Inc. (the makers of SurveyCTO)! Moving forward, this repository will be actively maintained and supported by the Dobility team.
+
 ==========
 surveyeval
 ==========
