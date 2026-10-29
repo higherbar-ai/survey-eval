@@ -1,0 +1,53 @@
+name: Publish to CodeArtifact
+
+# Publishes each GitHub release to Dobility's CodeArtifact repository (domain dobility, repository scto_internal),
+# where Dobility's services install this package from. PyPI publishing is a separate, manual step (see README.rst).
+on:
+  release:
+    types: [published]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    # The HigherBarCICD role trusts only jobs in this environment, so its required reviewers approve each publish.
+    environment: codeartifact
+
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Build the distribution packages
+        run: |
+          python -m pip install --upgrade build twine setuptools
+          python -m build
+
+      # A release tag like v1.2.3 must match the version in setup.py, so the published version is the released one.
+      - name: Check the release tag against the setup.py version
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          VERSION=$(python setup.py --version)
+          if [ "${TAG#v}" != "$VERSION" ]; then
+            echo "::error::Release tag $TAG does not match version $VERSION in setup.py"
+            exit 1
+          fi
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::404072097177:role/HigherBarCICD
+          role-duration-seconds: 900
+          aws-region: us-east-1
+
+      - name: Publish to CodeArtifact
+        run: |
+          aws codeartifact login --tool twine --domain dobility --domain-owner 404072097177 --repository scto_internal
+          twine upload --repository codeartifact dist/*

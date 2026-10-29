@@ -275,6 +275,10 @@ To rebuild the distribution packages:
 #. For GitHub:
     a. Commit everything to GitHub and merge to ``main`` branch
     b. Add new release, linking to new tag like ``v#.#.#`` in main branch
+    c. Publishing the release starts the "Publish to CodeArtifact" workflow (``.github/workflows/publish.yml``),
+       which publishes the same version to Dobility's CodeArtifact repository. A required reviewer of the
+       ``codeartifact`` environment approves the run in the Actions tab. The release tag must match the version in
+       ``/setup.py``.
 #. For readthedocs.io:
     a. Go to https://readthedocs.org/projects/surveyeval/, log in, and click to rebuild from GitHub (only if it
        doesn't automatically trigger)
