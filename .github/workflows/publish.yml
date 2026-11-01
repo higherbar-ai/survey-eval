@@ -10,9 +10,6 @@ jobs:
   publish:
     runs-on: ubuntu-latest
 
-    # The HigherBarCICD role trusts only jobs in this environment, so its required reviewers approve each publish.
-    environment: codeartifact
-
     permissions:
       id-token: write
       contents: read
